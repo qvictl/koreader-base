@@ -340,6 +340,17 @@ end
 function util.runInSubProcess(func, with_pipe, double_fork)
     local parent_read_fd, parent_write_fd
     local child_read_fd, child_write_fd
+    -- Close every pipe end we opened, so that a failure does not leak fds.
+    -- The error message is built *before* closing, as close() may clobber errno.
+    local function fail(what)
+        local err = what .. ": " .. posix.strerror()
+        -- (not ipairs: any of these may be nil)
+        if parent_read_fd then C.close(parent_read_fd) end
+        if parent_write_fd then C.close(parent_write_fd) end
+        if child_read_fd then C.close(child_read_fd) end
+        if child_write_fd then C.close(child_write_fd) end
+        return false, err
+    end
     if with_pipe then
         local pipe = ffi.new('int[2]', {-1, -1})
         if C.pipe(pipe) ~= 0 then -- failed creating pipe !
@@ -348,7 +359,7 @@ function util.runInSubProcess(func, with_pipe, double_fork)
         parent_read_fd, child_write_fd = pipe[0], pipe[1]
         if with_pipe == 'bidi' then
             if C.pipe(pipe) ~= 0 then -- failed creating pipe !
-                return false, "failed creating pipe: "..posix.strerror()
+                return fail("failed creating pipe")
             end
             parent_write_fd, child_read_fd = pipe[1], pipe[0]
         end
@@ -416,7 +427,18 @@ function util.runInSubProcess(func, with_pipe, double_fork)
             -- to communicate with parent process.
             -- We pass child_write_fd (if with_pipe) so 'func' can write to it
             pid = C.getpid()
-            func(pid, child_write_fd, child_read_fd)
+            -- Run func in its own coroutine: if it (or anything it calls) yields,
+            -- the yield would otherwise propagate through xpcall into the parent's
+            -- (copied) coroutine, and this child would carry on running the
+            -- parent's UI loop instead of reaching _exit below.
+            local co = coroutine.create(func)
+            local co_ok, co_err = coroutine.resume(co, pid, child_write_fd, child_read_fd)
+            if not co_ok then
+                error(debug.traceback(co, co_err), 0)
+            end
+            if coroutine.status(co) ~= "dead" then
+                print("subprocess function yielded, which is not supported: exiting")
+            end
         end, debug.traceback)
         if not ok then
             print("error in subprocess:", err)
@@ -425,7 +447,7 @@ function util.runInSubProcess(func, with_pipe, double_fork)
     end
     -- parent/main process
     if pid < 0 then -- on failure, fork() returns -1
-        return false, "fork failed: "..posix.strerror()
+        return fail("fork failed")
     end
     -- If we double-fork, reap the outer fork now, since its only purpose is fork -> _exit
     if double_fork then
@@ -433,7 +455,7 @@ function util.runInSubProcess(func, with_pipe, double_fork)
         local ret = C.waitpid(pid, status, 0)
         -- Returns pid on success, -1 on failure
         if ret < 0 then
-            return false, "double fork failed: "..posix.strerror()
+            return fail("double fork failed")
         end
     end
     -- close our duplicate child fds
