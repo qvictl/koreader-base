@@ -34,7 +34,7 @@ permissions:
   contents: read
 
 env:
-  CACHE_EPOCH: qv1
+  CACHE_EPOCH: qv2
   DOCKER_IMG: koreader/kobase:5.0.0-22.04
 
 defaults:
