@@ -11,6 +11,25 @@ local function waitForSubProcessDone(pid)
     return false
 end
 
+-- Waits for a subprocess to exit, returns its exit status (or nil on timeout, after killing it).
+local function waitForExitStatus(pid)
+    local ffi = require("ffi")
+    local C = ffi.C
+    local status = ffi.new("int[1]")
+    for i = 1, 200 do -- 5 seconds
+        if C.waitpid(pid, status, C.WNOHANG) == pid then
+            local st = tonumber(status[0])
+            if bit.band(st, 0x7f) == 0 then
+                return bit.band(bit.rshift(st, 8), 0xff)
+            end
+            return 128 + bit.band(st, 0x7f)
+        end
+        util.usleep(25000)
+    end
+    C.kill(pid, 9)
+    C.waitpid(pid, status, 0)
+end
+
 local function waitForData(fd_or_luafile)
     local available = 0
     for i = 1, 40 do -- 1 second
@@ -273,6 +292,40 @@ describe("util module", function()
             f:close()
             assert.is.same(data, "test1")
             os.remove(tmp_f)
+        end)
+        it("should exit with status 0 when the function succeeds", function()
+            local pid = util.runInSubProcess(function() end)
+            assert.is_true(pid ~= 0)
+            assert.are.equal(0, waitForExitStatus(pid))
+        end)
+        it("should exit with status 1 when the function errors", function()
+            local pid = util.runInSubProcess(function()
+                error("expected error in subprocess")
+            end)
+            assert.is_true(pid ~= 0)
+            assert.are.equal(1, waitForExitStatus(pid))
+        end)
+        it("should contain a function that yields (called from a coroutine)", function()
+            local ffi = require("ffi")
+            local parent_pid = ffi.C.getpid()
+            local marker = os.tmpname()
+            os.remove(marker)
+            local co = coroutine.create(function()
+                return util.runInSubProcess(function()
+                    coroutine.yield("escaped")
+                end)
+            end)
+            local ok, pid = coroutine.resume(co)
+            if ffi.C.getpid() ~= parent_pid then
+                -- We are the child, and the yield escaped from runInSubProcess.
+                local f = io.open(marker, "w")
+                if f then f:write("escaped") f:close() end
+                ffi.C._exit(3)
+            end
+            assert.is_true(ok)
+            assert.is.number(pid)
+            assert.are.equal(1, waitForExitStatus(pid))
+            assert.is_nil(io.open(marker, "r"))
         end)
         it("should read data from subprocess via pipe", function()
             local pid, parent_fd = util.runInSubProcess(function(pid, child_fd)
