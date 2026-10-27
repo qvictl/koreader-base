@@ -126,7 +126,7 @@ def main():
             md.append("❌ This PR changes code but adds or changes no test.")
             md.append("")
             md.append("Code is %s; tests live in %s. Add or update tests covering the change "
-                      "(see CONTRIBUTING.md). Only a maintainer can waive this, with the `%s` label%s."
+                      "(see CONTRIBUTING.md); user-visible features and fixes need an emulator integration scenario. Only a maintainer can waive this, with the `%s` label, for documentation, comments or log wording changes%s."
                       % (rules["describe_code"], rules["describe_tests"], LABEL,
                          (" (the label was applied by %s, who is not a maintainer)" % by) if applied else ""))
     if code:

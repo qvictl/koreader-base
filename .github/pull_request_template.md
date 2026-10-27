@@ -10,7 +10,7 @@ we gate on tests (see CONTRIBUTING.md). Please fill in every section.
 ### Tests
 
 <!-- Which unit tests (spec/unit/…) did you add or change, and what do they check?
-     If the change is only observable in KOReader, link the qvictl/koreader integration scenario.
+     User-visible effects: name the qvictl/koreader integration scenario (spec/integration/scenarios/…) covering them.
      If no test is possible, explain why: a maintainer may then apply `no-tests-needed`. -->
 
 ### Test evidence
@@ -22,4 +22,5 @@ we gate on tests (see CONTRIBUTING.md). Please fill in every section.
 
 - [ ] Tests added or updated for every code change (or the reason why not is explained above)
 - [ ] `make test` passes locally (or I rely on CI and checked its results)
-- [ ] The changed `ffi/*.lua` lines are covered (Diff coverage check ≥ 70%)
+- [ ] Coverage check green: changed lines ≥ 80% by unit tests and ≥ 90% by unit + integration tests, no overall drop, owned modules on target
+- [ ] User-visible effects are covered by a qvictl/koreader integration scenario (named above)

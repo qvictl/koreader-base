@@ -1,0 +1,13 @@
+# Fork-owned modules: their coverage (unit tests + qvictl/koreader's emulator integration
+# tests run against this base) must reach the dated targets of .ci/coverage_config.lua:
+# 80% from 2026-10-27, 85% from 2026-11-24, 90% from 2026-12-22 ("Coverage" CI check).
+#
+# Format: <path> <scope>
+#   file      the whole file (modules added by the fork; added Lua files are owned automatically)
+#   fork      the lines the fork changed vs upstream
+#   func:A,B  the top-level functions A, B
+#
+# Not measurable with luacov (C/patches), covered by qvictl/koreader's integration scenario
+# 06_sdcv_res_dirs: thirdparty/sdcv/skip_res_dirs.patch (perf/sdcv-skip-res-dirs).
+
+ffi/util.lua   func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD

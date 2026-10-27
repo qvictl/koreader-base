@@ -16,9 +16,18 @@ It is the `base` submodule of [qvictl/koreader](https://github.com/qvictl/koread
 
 ## What every PR needs
 
-1. **Tests for any code change.** If your PR changes code (`ffi/*.lua`, top-level C/C++ sources, `input/`), it must add or update unit tests in `spec/unit/` (busted). The required **Tests policy** check enforces this; only a maintainer can waive it, with the `no-tests-needed` label (e.g. for a thirdparty bump or a change that can only be tested on a device; say why in the PR). Changes whose effect is only visible in KOReader should also get an emulator integration scenario in qvictl/koreader (`spec/integration/`).
-2. **Diff coverage**: at least **70%** of the changed executable `ffi/*.lua` lines must be run by the unit tests (luacov); the required **Diff coverage** check reports it on the PR.
-3. **All CI checks green** (required by the branch protection of `main`): **Lint** (shellcheck/shfmt, luacheck, cmakelint), **Build and unit tests** (emulator build in upstream's `koreader/kobase` image, FFI cdecls check, bincheck, unit tests), **Diff coverage**, **Tests policy**.
+1. **Tests for any code change.** If your PR changes code (`ffi/*.lua`, top-level C/C++ sources, `input/`), it must add or update unit tests in `spec/unit/` (busted). For every **user-visible** effect (i.e. one KOReader users can observe), also add or update an emulator integration scenario in [qvictl/koreader](https://github.com/qvictl/koreader) (`spec/integration/scenarios/`), and name it in the PR. The required **Tests policy** check fails when code changes come without any `spec/` change; only a maintainer can waive it, with the `no-tests-needed` label, for documentation, comments or log wording changes.
+2. **Coverage gates** (required **Coverage** check; policy in [`.ci/coverage_config.lua`](.ci/coverage_config.lua)). Line coverage (luacov) of the unit tests, and of qvictl/koreader's emulator integration tests run against this base (the CI builds qvictl/koreader `main` with the PR's base):
+
+   | Gate | Requirement (blocking) |
+   |---|---|
+   | Diff coverage, **unit tests** only | ≥ **80%** of the changed executable `ffi/*.lua` lines |
+   | Diff coverage, **unit + integration** | ≥ **90%** |
+   | **Overall** coverage of `ffi/*.lua` (minus generated `*_h.lua`) | must not drop below `main`'s (ratchet, ± 0.1 pp) |
+   | **Fork-owned modules** ([`.ci/owned-modules.txt`](.ci/owned-modules.txt): `ffi/util.lua` subprocess code) | each ≥ **80%** from 2026-10-27, **85%** from 2026-11-24, **90%** from 2026-12-22 |
+
+   Overall targets (report only): day-one baseline +5 pp by 2026-11-24, +10 pp by 2026-12-22. Upstream sync PRs only enforce the owned-modules gate. Code run in subprocesses (`util.runInSubProcess`) is measured too (the tests save the children's stats). `main`'s baseline, history and badges live on the [`coverage`](../../tree/coverage) branch. Every PR gets a coverage comment and job summary.
+3. **All CI checks green** (required by the branch protection of `main`): **Lint** (shellcheck/shfmt, luacheck, cmakelint), **Build and unit tests** (emulator build in upstream's `koreader/kobase` image, FFI cdecls check, bincheck, unit tests), **Integration tests** (qvictl/koreader's emulator scenarios with this base), **Coverage**, **Tests policy**.
 4. **Test evidence in the description** (see the PR template).
 
 ## Running the tests locally
