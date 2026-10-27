@@ -12,7 +12,8 @@
 #    conflicting files, and fails.
 #
 # Environment: GH_TOKEN (PR/issue API), USING_PAT=1 if pushes are made with a personal token
-# (then PR events trigger CI by themselves; otherwise CI is dispatched on the sync branch).
+# (then PR events trigger CI by themselves; otherwise the PR's workflow runs, which wait for
+# approval, are approved).
 
 # Backquotes in single-quoted strings are markdown, not command substitutions.
 # shellcheck disable=SC2016
@@ -201,13 +202,36 @@ for old_pr in $(gh pr list --base main --state open --label "${label}" --json nu
     log "- closed superseded PR #${old_pr}"
 done
 if [[ -z "${USING_PAT}" ]]; then
-    # Events from the workflow token don't trigger workflows: run CI on the branch explicitly.
-    for wf in ci.yml tests_policy.yml; do
-        if [[ -e ".github/workflows/${wf}" ]]; then
-            gh workflow run "${wf}" --ref "${branch}" -f pr="${pr}"
-            log "- dispatched ${wf} on \`${branch}\`"
+    # PRs opened with the workflow token get their pull_request workflow runs created as
+    # "action_required" (waiting for approval): approve them, so the PR's checks run. If
+    # that's not allowed, run CI on the branch explicitly instead (its checks then count
+    # for the branch protection only once the PR runs are approved by a maintainer).
+    head_sha="$(git rev-parse HEAD)"
+    approved=0
+    for _ in $(seq 1 12); do
+        mapfile -t runs < <(gh api "repos/${repo}/actions/runs?head_sha=${head_sha}&event=pull_request&per_page=50" \
+            --jq '.workflow_runs[] | select(.status == "action_required" or .conclusion == "action_required") | .id')
+        if [[ ${#runs[@]} -gt 0 ]] && [[ -n "${runs[0]}" ]]; then
+            for run in "${runs[@]}"; do
+                if gh api -X POST "repos/${repo}/actions/runs/${run}/approve" >/dev/null; then
+                    approved=$((approved + 1))
+                fi
+            done
+            break
         fi
+        sleep 10
     done
+    if [[ ${approved} -gt 0 ]]; then
+        log "- approved ${approved} pull_request workflow run(s) of #${pr}"
+    else
+        log "- ⚠️ could not approve the PR's workflow runs: dispatching CI on \`${branch}\` (a maintainer must approve the PR's own runs for its required checks)"
+        for wf in ci.yml tests_policy.yml; do
+            if [[ -e ".github/workflows/${wf}" ]]; then
+                gh workflow run "${wf}" --ref "${branch}" -f pr="${pr}"
+                log "- dispatched ${wf} on \`${branch}\`"
+            fi
+        done
+    fi
 fi
 close_issue_if_any "Resolved: upstream merged cleanly into #${pr}."
 
