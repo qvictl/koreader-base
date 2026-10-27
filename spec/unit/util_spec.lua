@@ -236,6 +236,37 @@ describe("util module", function()
     end)
 
     describe("util.runInSubProcess and related", function()
+        setup(function()
+            -- Coverage runs: subprocesses end with _exit(), skipping luacov's exit handler.
+            -- Have them save their stats (to their own file) when their function is done.
+            local runner = package.loaded["luacov.runner"]
+            if runner and runner.initialized then
+                local ffi = require("ffi")
+                util.addRunInSubProcessAfterForkFunc("spec_luacov_child", function()
+                    runner.configuration.statsfile = runner.configuration.statsfile .. ".child-" .. ffi.C.getpid()
+                    runner.data = {}
+                    local function save() pcall(runner.save_stats) end
+                    local raw_create = coroutine.create
+                    coroutine.create = function(f) -- luacheck: ignore 122
+                        coroutine.create = raw_create -- luacheck: ignore 122
+                        return raw_create(function(...)
+                            local res = { pcall(f, ...) }
+                            save()
+                            if not res[1] then error(res[2], 0) end
+                            return unpack(res, 2)
+                        end)
+                    end
+                    local raw_print = print
+                    print = function(...) -- luacheck: ignore 121
+                        save()
+                        return raw_print(...)
+                    end
+                end)
+            end
+        end)
+        teardown(function()
+            util.removeRunInSubProcessAfterForkFunc("spec_luacov_child")
+        end)
         it("should run usleep 100000 in subprocess", function()
             local var = "var_set_in_parent"
             local pid = util.runInSubProcess(function()
@@ -326,6 +357,95 @@ describe("util module", function()
             assert.is.number(pid)
             assert.are.equal(1, waitForExitStatus(pid))
             assert.is_nil(io.open(marker, "r"))
+        end)
+        it("should support bidirectional pipes", function()
+            local pid, read_fd, write_fd = util.runInSubProcess(function(_, child_write_fd, child_read_fd)
+                local got = util.readAllFromFD(child_read_fd)
+                util.writeToFD(child_write_fd, "echo:" .. got, true)
+            end, "bidi")
+            assert.is.number(pid)
+            assert.truthy(read_fd)
+            assert.truthy(write_fd)
+            util.writeToFD(write_fd, "ping", true)
+            assert.are.equal("echo:ping", util.readAllFromFD(read_fd))
+            assert.are.equal(0, waitForExitStatus(pid))
+        end)
+        it("should double fork", function()
+            local marker = os.tmpname()
+            local pid = util.runInSubProcess(function()
+                local f = io.open(marker, "w")
+                if f then f:write("ran") f:close() end
+            end, false, true)
+            assert.is.number(pid)
+            -- The intermediate process is already reaped, there's no process group to kill.
+            util.terminateSubProcess(pid)
+            assert.is_true(util.isSubProcessDone(pid))
+            local data
+            for i = 1, 40 do
+                local f = io.open(marker)
+                data = f and f:read("*a")
+                if f then f:close() end
+                if data == "ran" then break end
+                util.usleep(25000)
+            end
+            assert.are.equal("ran", data)
+            os.remove(marker)
+        end)
+        it("should report pipe creation failures without leaking fds", function()
+            local ffi = require("ffi")
+            local C = ffi.C
+            pcall(ffi.cdef, [[
+                struct spec_rlimit { unsigned long cur, max; };
+                int getrlimit(int, struct spec_rlimit *);
+                int setrlimit(int, const struct spec_rlimit *);
+            ]])
+            local RLIMIT_NOFILE = 7
+            local function fds()
+                local t = {}
+                for f in lfs.dir("/proc/self/fd") do
+                    if tonumber(f) then table.insert(t, tonumber(f)) end
+                end
+                return t
+            end
+            -- Fill the gaps in fd numbers, so that the limit means "N more fds".
+            local highest = math.max(unpack(fds()))
+            local fillers = {}
+            while true do
+                local fd = C.open("/dev/null", 0)
+                if fd < 0 or fd > highest then
+                    if fd >= 0 then C.close(fd) end
+                    break
+                end
+                table.insert(fillers, fd)
+            end
+            local lim = ffi.new("struct spec_rlimit")
+            C.getrlimit(RLIMIT_NOFILE, lim)
+            local saved = lim.cur
+            local results = {}
+            for _, extra in ipairs({ 0, 2 }) do
+                local before = #fds()
+                lim.cur = highest + 1 + extra
+                C.setrlimit(RLIMIT_NOFILE, lim)
+                local ok, err = util.runInSubProcess(function() end, "bidi")
+                lim.cur = saved
+                C.setrlimit(RLIMIT_NOFILE, lim)
+                results[extra] = { ok = ok, err = err, leaked = #fds() - before }
+            end
+            for _, fd in ipairs(fillers) do C.close(fd) end
+            for _, r in pairs(results) do
+                assert.is_false(r.ok)
+                assert.truthy(tostring(r.err):find("failed creating pipe", 1, true))
+                assert.are.equal(0, r.leaked)
+            end
+        end)
+        it("should terminate a subprocess and its children", function()
+            local pid = util.runInSubProcess(function()
+                os.execute("sleep 10")
+            end)
+            assert.is.number(pid)
+            util.usleep(100000)
+            util.terminateSubProcess(pid)
+            assert.is_true(waitForSubProcessDone(pid))
         end)
         it("should read data from subprocess via pipe", function()
             local pid, parent_fd = util.runInSubProcess(function(pid, child_fd)
