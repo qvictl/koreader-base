@@ -1,3 +1,15 @@
+> ## 关于本分支 · About this fork
+>
+> **本仓库是 KOReader 底层库 koreader-base 的独立维护分支**，专注于内存受限电子阅读器（如 Kindle Oasis 3）上的稳定性、内存占用与响应速度。
+>
+> - **与上游的关系**：我们会定期把 [koreader/koreader-base](https://github.com/koreader/koreader-base) 的更新合并进来；一旦上游的变更无法再与本分支干净合并，本分支将彻底独立发展。本分支的改动不再向上游提交。
+> - **贡献规则**：欢迎任何 PR，无论由人编写还是由 AI 编写。我们以测试而非作者身份把关：每个 PR 必须附带充分的单元测试，并通过基于模拟器的集成测试与全部 CI 检查后才能合并。详见 [CONTRIBUTING](CONTRIBUTING.md)。
+>
+> **This repository is an independently maintained fork of koreader-base**, focused on stability, memory footprint and responsiveness on memory-constrained e-readers (e.g. Kindle Oasis 3).
+>
+> - **Upstream**: we regularly merge updates from [koreader/koreader-base](https://github.com/koreader/koreader-base). If upstream changes can no longer be merged cleanly, this fork will continue fully independently. Changes made here are not submitted upstream.
+> - **Contributions**: pull requests are welcome whether written by people or by AI. We gate on tests, not on authorship: every PR must come with adequate unit tests and pass the emulator-based integration tests and all CI checks before it can be merged. See [CONTRIBUTING](CONTRIBUTING.md).
+
 ## koreader-base [![CircleCI](https://circleci.com/gh/koreader/koreader-base.svg?style=svg)](https://circleci.com/gh/koreader/koreader-base)
 
 This is the base framework for creating document readers like KOReader,
