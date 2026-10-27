@@ -76,7 +76,7 @@ mkdir -p "${emu}"
 tarball="$(find "${artifacts}" -name 'koreader-emulator-x86_64.tar.xz' -o -name 'base-luajit.tar.xz' | head -n1)"
 tar -C "${emu}" -xJf "${tarball}" koreader/luajit koreader/spec/rocks koreader/libs koreader/common 2>/dev/null ||
     tar -C "${emu}" -xJf "${tarball}"
-mapfile -t stats < <(find "${artifacts}" -name '*.stats.out' | sort)
+mapfile -t stats < <(find "$(cd "${artifacts}" && pwd)" -name '*.stats.out' | sort)
 echo "stats: ${stats[*]}"
 
 md="${RUNNER_TEMP:-/tmp}/diff_coverage.md"

@@ -71,7 +71,8 @@ jobs:
     timeout-minutes: 240
     env:
       CCACHE_DIR: /home/runner/.cache/ccache
-      MAKEFLAGS: OUTPUT_DIR=build PARALLEL_JOBS=4
+      # (CI=1: no -march=native, the build is cached and run on other runners)
+      MAKEFLAGS: OUTPUT_DIR=build PARALLEL_JOBS=4 CI=1
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -157,7 +158,8 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" .
       - name: Unit tests (with coverage)
         run: |
-          ./.ci/build_script.sh --assume-old=all test T="--coverage -o /home/ko/base/junit.xml"
+          # (-j 1: the test processes accumulate their luacov stats in the same file)
+          ./.ci/build_script.sh --assume-old=all test T="--coverage -j 1 -o /home/ko/base/junit.xml"
           sudo chown -R "$(id -u):$(id -g)" .
       - name: Collect coverage & luajit
         if: ${{ !cancelled() }}
