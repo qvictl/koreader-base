@@ -13,7 +13,7 @@ return {
         paths = { "ffi" },
         -- (generated FFI declarations)
         exclude = { "_h%.lua$" },
-        baseline = { date = "2026-10-27", percent = nil },
+        baseline = { date = "2026-10-27", percent = 35.62 }, -- main @ d8df83d8
         targets = {
             { from = "2026-11-24", delta_pp = 5 },
             { from = "2026-12-22", delta_pp = 10 },
