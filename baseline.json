@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-27",
+  "overall": {
+    "covered": 4586,
+    "total": 12875,
+    "percent": 35.619,
+    "files": 54
+  },
+  "diff_unit": {
+    "covered": 0,
+    "total": 0,
+    "percent": 100.000
+  },
+  "diff_combined": {
+    "covered": 0,
+    "total": 0,
+    "percent": 100.000
+  },
+  "owned": {
+    "covered": 80,
+    "total": 88,
+    "percent": 90.909,
+    "min": 80,
+    "ok": true,
+    "modules": {
+      "ffi/util.lua": {
+        "scope": "func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD",
+        "covered": 80,
+        "total": 88,
+        "percent": 90.909
+      }
+    }
+  },
+  "gates": [
+    {
+      "id": "diff",
+      "name": "Diff coverage, unit tests",
+      "ok": true,
+      "enforced": false
+    },
+    {
+      "id": "diff",
+      "name": "Diff coverage, unit + integration",
+      "ok": true,
+      "enforced": false
+    },
+    {
+      "id": "ratchet",
+      "name": "Overall coverage (ratchet)",
+      "ok": true,
+      "enforced": false
+    },
+    {
+      "id": "owned",
+      "name": "Fork-owned modules",
+      "ok": true,
+      "enforced": false
+    }
+  ],
+  "ok": true,
+  "commit": "d8df83d85afcbb305dc93ddc0cc3eaa834c050d2",
+  "event": "push",
+  "updated": "2026-10-27T15:09:10Z"
+}

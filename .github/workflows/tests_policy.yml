@@ -1,0 +1,53 @@
+# Fork-owned workflow (qvictl/koreader-base): not part of upstream koreader-base.
+#
+# "Tests policy" required check: a PR that changes code (ffi/*.lua, C/C++ sources,
+# input/) must add or change tests (spec/), unless a maintainer applies the
+# `no-tests-needed` label. Re-runs when labels change. See CONTRIBUTING.md.
+
+name: Tests policy
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'Pull request number'
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+
+  policy:
+    name: Tests policy
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          clean: false
+          fetch-depth: 0
+          filter: tree:0
+          show-progress: false
+          sparse-checkout: .ci
+      - name: Check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+        run: |
+          read -r base head < <(gh pr view "${PR}" --json baseRefOid,headRefOid --jq '"\(.baseRefOid) \(.headRefOid)"')
+          git fetch --quiet origin "${head}" "${base}"
+          ./.ci/fork/tests_policy.py --kind base --base "${base}" --head "${head}" \
+            --upstream origin/upstream --pr "${PR}" --repo "${GITHUB_REPOSITORY}" \
+            --summary "${GITHUB_STEP_SUMMARY}"

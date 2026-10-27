@@ -1,0 +1,17 @@
+diff --git a/src/utils.cpp b/src/utils.cpp
+index 1c8b3ec..484bbb1 100644
+--- a/src/utils.cpp
++++ b/src/utils.cpp
+@@ -68,6 +68,12 @@ static void __for_each_file(const std::string &dirname, const std::string &suff,
+                 // Ignore hidden entries.
+                 continue;
+             }
++            if (g_strcmp0(filename, "res") == 0) {
++                // Don't walk into dictionaries' resource directories (KOReader
++                // doesn't either): they may hold thousands of files, each costing
++                // a stat() here, on every lookup.
++                continue;
++            }
+             const std::string fullfilename(dirname + G_DIR_SEPARATOR_S + filename);
+             if (g_file_test(fullfilename.c_str(), G_FILE_TEST_IS_DIR))
+                 __for_each_file(fullfilename, suff, order_list, disable_list, f);
