@@ -1,0 +1,47 @@
+# Fork-owned workflow (qvictl/koreader-base): not part of upstream koreader-base.
+#
+# Weekly (and manual) upstream sync: fast-forwards the `upstream` mirror branch, mirrors
+# upstream's release tags, merges upstream into `main` on a `sync/upstream-<date>` branch
+# and opens a PR to `main` (full CI runs on it). On conflicts, opens or updates the
+# "Upstream sync conflict" issue. See .ci/fork/upstream_sync.sh.
+#
+# Pushing commits that touch .github/workflows needs a token with the `workflows`
+# permission: set a SYNC_TOKEN secret for that (the default token is used otherwise).
+
+name: Upstream sync
+
+on:
+  schedule:
+    # Mondays, 04:23 UTC.
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+
+  sync:
+    name: Sync
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          filter: tree:0
+          show-progress: false
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+      - name: Sync
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
+          USING_PAT: ${{ secrets.SYNC_TOKEN != '' && '1' || '' }}
+        run: ./.ci/fork/upstream_sync.sh base https://github.com/koreader/koreader-base.git master

@@ -1,0 +1,25 @@
+<!--
+Thanks for your contribution! PRs written by people or by AI are equally welcome here:
+we gate on tests (see CONTRIBUTING.md). Please fill in every section.
+-->
+
+### What and why
+
+<!-- What does this change, and why? -->
+
+### Tests
+
+<!-- Which unit tests (spec/unit/…) did you add or change, and what do they check?
+     If the change is only observable in KOReader, link the qvictl/koreader integration scenario.
+     If no test is possible, explain why: a maintainer may then apply `no-tests-needed`. -->
+
+### Test evidence
+
+<!-- How did you run them, and what was the result? e.g. `make test`: N successes / 0 failures;
+     device testing (model, firmware); before/after numbers for performance or memory changes. -->
+
+### Checklist
+
+- [ ] Tests added or updated for every code change (or the reason why not is explained above)
+- [ ] `make test` passes locally (or I rely on CI and checked its results)
+- [ ] The changed `ffi/*.lua` lines are covered (Diff coverage check ≥ 70%)
