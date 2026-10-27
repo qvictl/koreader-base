@@ -392,6 +392,11 @@ describe("util module", function()
             os.remove(marker)
         end)
         it("should report pipe creation failures without leaking fds", function()
+            if jit.os ~= "Linux" then
+                -- (needs /proc/self/fd, and Linux's RLIMIT_NOFILE value)
+                pending("Linux only")
+                return
+            end
             local ffi = require("ffi")
             local C = ffi.C
             pcall(ffi.cdef, [[
