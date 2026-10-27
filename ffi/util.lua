@@ -447,17 +447,25 @@ function util.runInSubProcess(func, with_pipe, double_fork)
                 error(debug.traceback(co, co_err), 0)
             end
             if coroutine.status(co) ~= "dead" then
-                print("subprocess function yielded, which is not supported: exiting")
+                error("subprocess function yielded, which is not supported", 0)
             end
         end, debug.traceback)
         if not ok then
             print("error in subprocess:", err)
         end
-        C._exit(0)
+        -- Let the parent tell success from failure (e.g., via waitpid's status).
+        C._exit(ok and 0 or 1)
     end
     -- parent/main process
     if pid < 0 then -- on failure, fork() returns -1
         return fail("fork failed")
+    end
+    if not double_fork then
+        -- Also set the child's process group from our side: the child does it too,
+        -- but it may not have been scheduled yet (it runs SCHED_BATCH & niced, and
+        -- we're likely under memory pressure), and terminateSubProcess() relies on
+        -- kill(-pid) reaching it. Harmless if the child already did it.
+        C.setpgid(pid, pid)
     end
     -- If we double-fork, reap the outer fork now, since its only purpose is fork -> _exit
     if double_fork then
@@ -502,8 +510,10 @@ function util.terminateSubProcess(pid)
         -- that it is terminated (a process may catch or ignore SIGTERM)
         -- If we used setpgid(0,0) above, we can kill the process group
         -- instead, by just using -pid
-        -- C.kill(pid, 9)
-        C.kill(-pid, 9)
+        if C.kill(-pid, 9) ~= 0 then
+            -- No such process group (yet?): kill the process itself.
+            C.kill(pid, 9)
+        end
         -- Process will still have to be collected with calls to
         -- util.isSubProcessDone(), which may still return false for
         -- some small amount of time after our kill()
@@ -585,8 +595,10 @@ function util.readAllFromFD(fd)
         -- print("reading from fd")
         local bytes_read = tonumber(C.read(fd, ffi.cast('void*', buffer), chunksize))
         if bytes_read < 0 then
-            print("readAllFromFD() error: "..posix.strerror())
-            break
+            if ffi.errno() ~= C.EINTR then
+                print("readAllFromFD() error: "..posix.strerror())
+                break
+            end
         elseif bytes_read == 0 then -- EOF, no more data to read
             break
         else
