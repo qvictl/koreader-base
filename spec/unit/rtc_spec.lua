@@ -185,6 +185,8 @@ describe("RTC", function()
             assert.are.equal("Inappropriate ioctl for device", err)
             assert.is_false(RTC:isWakeupAlarmScheduled())
             assert.is_nil(RTC:getWakeupAlarmEpoch())
+            -- The RTC was closed.
+            assert.are.equal(0, dev.open_fds)
         end)
 
         it("should report a failed close", function()
@@ -244,6 +246,8 @@ describe("RTC", function()
                 assert.is_nil(ok)
                 assert.are.equal(-1, re)
                 assert.are.equal(ffi.string(real_C.strerror(case[2])), err)
+                -- (the RTC is closed whatever failed)
+                assert.are.equal(0, dev.open_fds)
             end
         end)
     end)
@@ -271,6 +275,8 @@ describe("RTC", function()
                     assert.is_nil(ok)
                     assert.are.equal(-1, re)
                     assert.are.equal(ffi.string(real_C.strerror(case[2])), err)
+                    -- (the RTC is closed whatever failed)
+                    assert.are.equal(0, dev.open_fds)
                 end
             end
         end)
@@ -362,6 +368,8 @@ describe("RTC", function()
                 assert.is_nil(ok)
                 assert.are.equal(-1, re)
                 assert.are.equal(ffi.string(real_C.strerror(case[2])), err)
+                -- (the RTC is closed whatever failed)
+                assert.are.equal(0, dev.open_fds)
                 for _, c in ipairs(dev.calls) do
                     assert.are_not.equal("settimeofday", c[1])
                 end

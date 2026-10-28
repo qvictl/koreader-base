@@ -69,6 +69,7 @@ function RTC:toggleAlarmInterrupt(enabled)
     local re = C.ioctl(fd, enabled and C.RTC_AIE_ON or C.RTC_AIE_OFF, 0)
     if re == -1 then
         err = ffi.string(C.strerror(ffi.errno()))
+        C.close(fd)
         if enabled then
             print("toggleAlarmInterrupt ioctl RTC_AIE_ON", re, err)
         else
@@ -129,6 +130,7 @@ function RTC:setWakeupAlarm(epoch, enabled)
     local re = C.ioctl(fd, C.RTC_WKALM_SET, wake)
     if re == -1 then
         err = ffi.string(C.strerror(ffi.errno()))
+        C.close(fd)
         print("setWakeupAlarm ioctl RTC_WKALM_SET", re, err)
         return nil, re, err
     end
@@ -201,6 +203,7 @@ function RTC:getWakeupAlarmSys()
     re = C.ioctl(fd, C.RTC_WKALM_RD, wake)
     if re == -1 then
         err = ffi.string(C.strerror(ffi.errno()))
+        C.close(fd)
         print("getWakeupAlarm ioctl RTC_WKALM_RD", re, err)
         return nil, re, err
     end
@@ -244,6 +247,7 @@ function RTC:readHardwareClock()
     re = C.ioctl(fd, C.RTC_RD_TIME, rtc)
     if re == -1 then
         err = ffi.string(C.strerror(ffi.errno()))
+        C.close(fd)
         print("readHardwareClock ioctl RTC_RD_TIME", re, err)
         return nil, re, err
     end
@@ -363,6 +367,7 @@ function RTC:HCToSys()
     re = C.ioctl(fd, C.RTC_RD_TIME, tm)
     if re == -1 then
         err = ffi.string(C.strerror(ffi.errno()))
+        C.close(fd)
         print("HCToSys ioctl RTC_RD_TIME", re, err)
         return nil, re, err
     end
