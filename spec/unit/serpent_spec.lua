@@ -78,6 +78,9 @@ describe("serpent module", function()
         end)
 
         it("should leave custom-format commas intact in a dot-decimal locale", function()
+            local numeric_locale = assert(os.setlocale(nil, "numeric"))
+            finally(function() assert(os.setlocale(numeric_locale, "numeric")) end)
+            assert(os.setlocale("C", "numeric"))
             assert.are.equal(1.5, roundtrip(1.5, {
                 fixradix = true,
                 numformat = "({%.1f, 0})[1]",
