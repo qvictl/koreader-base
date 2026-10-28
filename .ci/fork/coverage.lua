@@ -6,7 +6,8 @@ stats of the unit tests and of the emulator integration tests:
 
   1. diff coverage (unit tests only) of the changed executable Lua lines;
   2. diff coverage (unit + integration);
-  3. overall coverage of the configured paths, compared to main's (ratchet);
+  3. overall coverage of the configured paths, compared to main's at the change's base
+     (ratchet; the baseline is chosen by coverage_baseline.sh);
   4. coverage of the fork-owned modules (.ci/owned-modules.txt), against dated targets;
   5. overall coverage vs its day-one baseline and dated targets (report only);
   6. overall coverage by the unit tests alone vs its day-one baseline and dated targets
@@ -14,12 +15,14 @@ stats of the unit tests and of the emulator integration tests:
 
 Usage:
   luajit coverage.lua --config CONFIG.lua --src DIR [--diff FILE] [--fork-diff FILE]
-      [--unit STATS]... [--integration STATS]... [--baseline-overall PCT]
+      [--unit STATS]... [--integration STATS]... [--baseline-overall PCT] [--baseline-label TEXT]
       [--enforce diff,ratchet,owned,unit] [--today YYYY-MM-DD] [--title TEXT] [--note TEXT]
       [--md FILE] [--json FILE]
 
   --diff       unified diff (-U0) of the change being checked (PR), for gates 1 & 2
   --fork-diff  unified diff (-U0) of the fork's changes vs upstream, for "fork" owned scopes
+  --baseline-overall  main's overall coverage at the change's base, for the ratchet (gate 3)
+  --baseline-label    where that baseline comes from (e.g. "main@1a2b3c4d (this change's base)")
   --enforce    gates whose failure makes the exit code 1 (others are reported only)
 
 Exit code: 0, or 1 if an enforced gate fails.
@@ -40,6 +43,7 @@ do
         elseif a == "--unit" then table.insert(args.unit, nxt())
         elseif a == "--integration" then table.insert(args.integration, nxt())
         elseif a == "--baseline-overall" then args.baseline_overall = tonumber(nxt())
+        elseif a == "--baseline-label" then args.baseline_label = nxt()
         elseif a == "--enforce" then
             for g in nxt():gmatch("[^,]+") do args.enforce[g] = true end
         elseif a == "--today" then args.today = nxt()
@@ -401,9 +405,11 @@ end
 if args.baseline_overall then
     gate("ratchet", "Overall coverage (ratchet)", overall.percent >= args.baseline_overall - cfg_gates.ratchet_tolerance_pp,
         string.format("%.2f%% (%+.2f pp)", overall.percent, overall.percent - args.baseline_overall),
-        string.format("≥ main's %.2f%% (± %.2f pp)", args.baseline_overall, cfg_gates.ratchet_tolerance_pp))
+        string.format("≥ %.2f%% (± %.2f pp) of %s", args.baseline_overall, cfg_gates.ratchet_tolerance_pp,
+            args.baseline_label or "main"))
 else
-    gate("ratchet", "Overall coverage (ratchet)", true, string.format("%.2f%%", overall.percent), "no baseline for main yet")
+    gate("ratchet", "Overall coverage (ratchet)", true, string.format("%.2f%%", overall.percent),
+        args.baseline_label or "no baseline for main yet")
 end
 gate("owned", "Fork-owned modules", owned.ok,
     string.format("%s overall, lowest %s", fmtPct(owned.covered, owned.total),
@@ -547,6 +553,9 @@ if args.json then
         table.insert(mods, string.format('%q: {"scope": %q, "covered": %d, "total": %d, "percent": %.3f}',
             e.path, e.scope, e.covered, e.total, e.percent))
     end
+    add("ratchet", string.format('{"baseline": %s, "label": %s}',
+        args.baseline_overall and string.format("%.3f", args.baseline_overall) or "null",
+        args.baseline_label and string.format("%q", args.baseline_label) or "null"))
     add("owned", string.format('{"covered": %d, "total": %d, "percent": %.3f, "min": %s, "ok": %s, "modules": {%s}}',
         owned.covered, owned.total, owned.percent, owned.min or "null", tostring(owned.ok), table.concat(mods, ", ")))
     local gs = {}
