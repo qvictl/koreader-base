@@ -726,6 +726,8 @@ static int closeDocument(lua_State *L) {
 		}
 		delete doc->text_view;
 		doc->text_view = NULL;
+		// LVDocView members release their fonts after close() has collected.
+		fontMan->gc();
 
 		// Destroyed by text_view->close()
 		doc->dom_doc = NULL;
