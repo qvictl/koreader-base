@@ -1,25 +1,25 @@
 {
   "date": "2026-10-28",
   "overall": {
-    "covered": 5653,
-    "total": 12887,
-    "percent": 43.866,
+    "covered": 5661,
+    "total": 12892,
+    "percent": 43.911,
     "files": 54
   },
   "overall_unit": {
-    "covered": 5164,
-    "total": 12851,
-    "percent": 40.184,
+    "covered": 5172,
+    "total": 12856,
+    "percent": 40.230,
     "min": null
   },
   "diff_unit": {
-    "covered": 0,
-    "total": 0,
+    "covered": 8,
+    "total": 8,
     "percent": 100.000
   },
   "diff_combined": {
-    "covered": 0,
-    "total": 0,
+    "covered": 8,
+    "total": 8,
     "percent": 100.000
   },
   "owned": {
@@ -70,7 +70,7 @@
     }
   ],
   "ok": true,
-  "commit": "e736a99f2240187921e243ed636cadc9dfac3ec4",
+  "commit": "a4fc72d2f1102dba40eaf1fe97c2418d3316efa0",
   "event": "push",
-  "updated": "2026-10-28T03:54:22Z"
+  "updated": "2026-10-28T04:01:18Z"
 }
