@@ -94,5 +94,33 @@ describe("zstd", function()
             local ptr, len = zstd.zstd_uncompress_ctx(packed, #packed)
             assert.are.equal(data, toString(ptr, len))
         end)
+
+        it("should not leak its output buffer on corrupted input", function()
+            -- Load a fresh module whose calloc/free are tracked.
+            local live = {}
+            local fake_C = setmetatable({
+                calloc = function(n, size)
+                    local p = C.calloc(n, size)
+                    if p ~= nil then live[tostring(ffi.cast("uintptr_t", p))] = true end
+                    return p
+                end,
+                free = function(p)
+                    live[tostring(ffi.cast("uintptr_t", p))] = nil
+                    return C.free(p)
+                end,
+            }, { __index = C })
+            local saved_ffi = package.loaded.ffi
+            package.loaded["ffi/zstd"] = nil
+            package.loaded.ffi = setmetatable({ C = fake_C }, { __index = ffi })
+            local ok, tracked = pcall(require, "ffi/zstd")
+            package.loaded.ffi = saved_ffi
+            package.loaded["ffi/zstd"] = zstd
+            assert(ok, tracked)
+            local packed = compress(sample())
+            local truncated = packed:sub(1, #packed - 8)
+            assert.has_error(function() tracked.zstd_uncompress_ctx(truncated, #truncated) end)
+            assert.has_error(function() tracked.zstd_uncompress(truncated, #truncated) end)
+            assert.are.same({}, live)
+        end)
     end)
 end)

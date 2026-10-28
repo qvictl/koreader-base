@@ -74,7 +74,10 @@ function zstd.zstd_uncompress_ctx(ptr, size)
     local buff = C.calloc(n, 1)
     assert(buff ~= nil, "Failed to allocate ZSTD decompression buffer (" .. tonumber(n) .. " bytes)")
     local ulen = zst.ZSTD_decompressDCtx(DCtx, buff, n, ptr, size)
-    assert(zst.ZSTD_isError(ulen) == 0, ffi.string(zst.ZSTD_getErrorName(ulen)))
+    if zst.ZSTD_isError(ulen) ~= 0 then
+        C.free(buff)
+        error(ffi.string(zst.ZSTD_getErrorName(ulen)))
+    end
     return buff, ulen
 end
 
