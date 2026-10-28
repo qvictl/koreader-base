@@ -297,10 +297,13 @@ function util.execute(...)
         local pid = C.fork()
         if pid == 0 then
             local args = table.pack(...)
-            os.exit(C.execl(args[1], unpack(args, 1, args.n+1))) -- Last arg must be a NULL pointer
+            C._exit(C.execl(args[1], unpack(args, 1, args.n+1))) -- Last arg must be a NULL pointer
         end
+        if pid < 0 then return -1 end
         local status = ffi.new('int[1]')
-        C.waitpid(pid, status, 0)
+        while C.waitpid(pid, status, 0) < 0 do
+            if ffi.errno() ~= C.EINTR then return -1 end
+        end
         return status[0]
     end
 end
