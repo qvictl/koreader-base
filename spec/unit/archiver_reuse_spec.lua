@@ -94,4 +94,34 @@ describe("Archiver fixes", function()
         r:close()
         assert.are.same({ "root/", "root/a.txt", "single.txt" }, paths)
     end)
+
+    it("should preserve the disk reader error when addPath cannot open it", function()
+        local ffi = require("ffi")
+        local loadlib = ffi.loadlib
+        local libarchive = loadlib("archive", "13")
+        local failed_reader
+        stub(ffi, "loadlib", function(name, ...)
+            if name ~= "archive" then return loadlib(name, ...) end
+            return setmetatable({
+                archive_read_disk_open = function(reader)
+                    failed_reader = reader
+                    return libarchive.ARCHIVE_FAILED
+                end,
+                archive_error_string = function(archive)
+                    if archive == failed_reader then return "disk reader open failure" end
+                    return nil
+                end,
+            }, { __index = libarchive })
+        end)
+        finally(function() ffi.loadlib:revert() end)
+        local isolated = assert(loadfile("ffi/archiver.lua"))()
+        local w = isolated.Writer:new()
+        finally(function() w:close() end)
+        assert.is_true(w:open(tmp .. "/tree.zip"))
+        assert.is_nil(w:addPath("root", tmp .. "/src"))
+        assert.is_not_nil(failed_reader)
+        assert.are.equal("disk reader open failure", w.err)
+        assert.is_true(w:addFileFromMemory("recovered.txt", "still writable"))
+        assert.is_nil(w.err)
+    end)
 end)

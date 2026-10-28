@@ -28,10 +28,10 @@ local function s(t, opts)
     or type(s) ~= "string" and tostring(s) -- escape NEWLINE/010 and EOF/026
     or ("%q"):format(s):gsub("\010","n"):gsub("\026","\\026") end
   -- handle radix changes in some locales
-  if opts.fixradix and (".1f"):format(1.2) ~= "1.2" then
+  if opts.fixradix and ("%.1f"):format(1.2) ~= "1.2" then
     local origsafestr = safestr
     safestr = function(s) return type(s) == "number"
-      and (nohuge and snum[tostring(s)] or numformat:format(s):gsub(",",".")) or origsafestr(s)
+      and (huge and snum[tostring(s)] or numformat:format(s):gsub(",",".")) or origsafestr(s)
     end
   end
   local function comment(s,l) return comm and (l or 0) < comm and ' --[['..select(2, pcall(tostring, s))..']]' or '' end

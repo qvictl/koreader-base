@@ -67,6 +67,45 @@ describe("serpent module", function()
             assert.are.equal("{x = 1.500}", serpent.line({ x = 1.5 }, { comment = false, numformat = "%.3f" }))
             assert.are.equal("{inf, -inf}", serpent.line({ math.huge, -math.huge }, { comment = false, nohuge = true }))
         end)
+
+        it("should preserve special numbers when fixradix is enabled", function()
+            local values = { math.huge, -math.huge, 0/0, 1.5 }
+            local restored = roundtrip(values, { fixradix = true })
+            assert.are.equal(math.huge, restored[1])
+            assert.are.equal(-math.huge, restored[2])
+            assert.are_not.equal(restored[3], restored[3])
+            assert.are.equal(1.5, restored[4])
+        end)
+
+        it("should leave custom-format commas intact in a dot-decimal locale", function()
+            local numeric_locale = assert(os.setlocale(nil, "numeric"))
+            finally(function() assert(os.setlocale(numeric_locale, "numeric")) end)
+            assert(os.setlocale("C", "numeric"))
+            assert.are.equal(1.5, roundtrip(1.5, {
+                fixradix = true,
+                numformat = "({%.1f, 0})[1]",
+            }))
+        end)
+
+        it("should normalize decimal commas without changing the nohuge option", function()
+            -- Exercise a comma-decimal locale without depending on installed locales.
+            local format = string.format
+            local formatter = stub(string, "format", function(fmt, ...)
+                local formatted = format(fmt, ...)
+                if type((...)) == "number" then
+                    return (formatted:gsub("%.", ","))
+                end
+                return formatted
+            end)
+            finally(function() formatter:revert() end)
+            assert.are.equal("{1.500, 1/0 --[[math.huge]], -1/0 --[[-math.huge]], 0/0}",
+                serpent.line({ 1.5, math.huge, -math.huge, 0/0 },
+                    { fixradix = true, comment = false, numformat = "%.3f" }))
+            assert.are.equal("{1.500, inf, -inf}",
+                serpent.line({ 1.5, math.huge, -math.huge },
+                    { fixradix = true, nohuge = true, comment = false, numformat = "%.3f" }))
+            assert.are.equal('"text"', serpent.line("text", { fixradix = true }))
+        end)
     end)
 
     describe("block", function()
