@@ -507,6 +507,8 @@ end
 -- The child execs the shell directly, without leaving a resident Lua worker.
 -- The caller owns the fd and must drain it and reap pid independently: EOF
 -- does not imply shell exit, and descendants may outlive the shell.
+-- Dismissed waits can leave the command running while draining its output.
+-- A reaped pid is not a safe handle for later descendant-group termination.
 function util.openCommandPipe(command)
     local shell = util.isAndroid() and "/system/bin/sh" or "/bin/sh"
     return util.runInSubProcess(function(_, write_fd)
