@@ -1,10 +1,16 @@
 {
-  "date": "2026-10-27",
+  "date": "2026-10-28",
   "overall": {
-    "covered": 4586,
+    "covered": 4587,
     "total": 12875,
-    "percent": 35.619,
+    "percent": 35.627,
     "files": 54
+  },
+  "overall_unit": {
+    "covered": 3667,
+    "total": 12812,
+    "percent": 28.622,
+    "min": null
   },
   "diff_unit": {
     "covered": 0,
@@ -17,17 +23,17 @@
     "percent": 100.000
   },
   "owned": {
-    "covered": 80,
+    "covered": 81,
     "total": 88,
-    "percent": 90.909,
+    "percent": 92.045,
     "min": 80,
     "ok": true,
     "modules": {
       "ffi/util.lua": {
         "scope": "func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD",
-        "covered": 80,
+        "covered": 81,
         "total": 88,
-        "percent": 90.909
+        "percent": 92.045
       }
     }
   },
@@ -55,10 +61,16 @@
       "name": "Fork-owned modules",
       "ok": true,
       "enforced": false
+    },
+    {
+      "id": "unit",
+      "name": "Overall coverage, unit tests",
+      "ok": true,
+      "enforced": false
     }
   ],
   "ok": true,
-  "commit": "de93ce4081aeb383ce7dadb27e59c0bb1d898934",
+  "commit": "d00ccc8083466616740b7fde9dcd137955b2818a",
   "event": "push",
-  "updated": "2026-10-27T15:54:05Z"
+  "updated": "2026-10-28T02:44:53Z"
 }

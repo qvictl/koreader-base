@@ -2,9 +2,10 @@
 
 Unit + emulator integration tests (luacov). Updated by CI on every push to main; the PR ratchet compares to `baseline.json`.
 
-| Date | Commit | Overall | Fork-owned modules | Owned target |
-|---|---|---:|---:|---:|
-| 2026-10-27 | [de93ce4081](https://github.com/qvictl/koreader-base/commit/de93ce4081aeb383ce7dadb27e59c0bb1d898934) | 35.62% | 90.91% | 80% |
-| 2026-10-27 | [8e4703f75d](https://github.com/qvictl/koreader-base/commit/8e4703f75de050a576bbd2044f780e5343a850d3) | 35.62% | 90.91% | 80% |
-| 2026-10-27 | [e861fcf558](https://github.com/qvictl/koreader-base/commit/e861fcf558c45c68f1a4b683958ef9a31df2ae4b) | 35.62% | 90.91% | 80% |
-| 2026-10-27 | [d8df83d85a](https://github.com/qvictl/koreader-base/commit/d8df83d85afcbb305dc93ddc0cc3eaa834c050d2) | 35.62% | 90.91% | 80% |
+| Date | Commit | Overall | Unit tests only | Fork-owned modules | Owned target |
+|---|---|---:|---:|---:|---:|
+| 2026-10-28 | [d00ccc8083](https://github.com/qvictl/koreader-base/commit/d00ccc8083466616740b7fde9dcd137955b2818a) | 35.63% | 28.62% | 92.05% | 80% |
+| 2026-10-27 | [de93ce4081](https://github.com/qvictl/koreader-base/commit/de93ce4081aeb383ce7dadb27e59c0bb1d898934) | 35.62% | – | 90.91% | 80% |
+| 2026-10-27 | [8e4703f75d](https://github.com/qvictl/koreader-base/commit/8e4703f75de050a576bbd2044f780e5343a850d3) | 35.62% | – | 90.91% | 80% |
+| 2026-10-27 | [e861fcf558](https://github.com/qvictl/koreader-base/commit/e861fcf558c45c68f1a4b683958ef9a31df2ae4b) | 35.62% | – | 90.91% | 80% |
+| 2026-10-27 | [d8df83d85a](https://github.com/qvictl/koreader-base/commit/d8df83d85afcbb305dc93ddc0cc3eaa834c050d2) | 35.62% | – | 90.91% | 80% |
