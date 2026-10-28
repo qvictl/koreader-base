@@ -77,6 +77,13 @@ describe("serpent module", function()
             assert.are.equal(1.5, restored[4])
         end)
 
+        it("should leave custom-format commas intact in a dot-decimal locale", function()
+            assert.are.equal(1.5, roundtrip(1.5, {
+                fixradix = true,
+                numformat = "({%.1f, 0})[1]",
+            }))
+        end)
+
         it("should normalize decimal commas without changing the nohuge option", function()
             -- Exercise a comma-decimal locale without depending on installed locales.
             local format = string.format
