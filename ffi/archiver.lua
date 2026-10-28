@@ -106,7 +106,8 @@ function Reader:seek(key)
     if entry.index == self.index then
         return entry
     end
-    for __ in self:iterate(entry.index > self.index) do
+    -- NOTE: no current index after close(true): iterate() reopens the archive.
+    for __ in self:iterate(self.index ~= nil and entry.index > self.index) do
         if entry.index == self.index then
             return entry
         end
@@ -165,7 +166,7 @@ function Reader:close(keep_info)
     if not keep_info then
         self.filepath = nil
         self.entries = {}
-        self.size = nil
+        self.size = 0
     end
 end
 
@@ -261,7 +262,7 @@ function Writer:addFileFromMemory(entry_path, content, mtime)
     libarchive.archive_entry_set_pathname(entry, entry_path)
     libarchive.archive_entry_set_filetype(entry, libarchive.AE_IFREG)
     libarchive.archive_entry_set_mtime(entry, mtime or os.time(), 0)
-    libarchive.archive_entry_set_perm(entry, 0644)
+    libarchive.archive_entry_set_perm(entry, tonumber("644", 8)) -- Lua has no octal literals
     libarchive.archive_entry_set_size(entry, #content)
     if libarchive.archive_write_header(self.archive, entry) ~= libarchive.ARCHIVE_OK or
        libarchive.archive_write_data(self.archive, content, #content) ~= #content then
@@ -352,7 +353,8 @@ function Writer:addPath(entry_root, root, recursive, mtime)
         print("Archive.Writer:addPath failed:", self.err)
     end
     libarchive.archive_read_close(rd)
-    return r == libarchive.ARCHIVE_OK
+    -- The loop only ends normally on ARCHIVE_EOF.
+    return r == libarchive.ARCHIVE_EOF
 end
 
 function Writer:close()
