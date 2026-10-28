@@ -31,6 +31,7 @@ local buf_pos = 0
 local buf_size = -1
 local buf = nil
 local buf_is_writable = true
+local buf_data_size = 0 -- number of readable bytes when deserializing
 local writable_buf = nil
 local writable_buf_size = nil
 local includeMetatables = true -- togglable with bitser.includeMetatables(false)
@@ -67,6 +68,8 @@ end
 local function Buffer_newReader(str)
 	Buffer_makeBuffer(#str)
 	ffi.copy(buf, str, #str)
+	-- the buffer may be bigger than str (it is reused)
+	buf_data_size = #str
 end
 
 local function Buffer_newDataReader(data, size)
@@ -77,6 +80,7 @@ local function Buffer_newDataReader(data, size)
 	buf_is_writable = false
 	buf_pos = 0
 	buf_size = size
+	buf_data_size = size
 	buf = ffi.cast("uint8_t*", data)
 end
 
@@ -111,7 +115,7 @@ local function Buffer_write_data(ct, len, ...)
 end
 
 local function Buffer_ensure(numbytes)
-	if buf_pos + numbytes > buf_size then
+	if numbytes < 0 or buf_pos + numbytes > buf_data_size then
 		error("malformed serialized data")
 	end
 end
@@ -131,6 +135,7 @@ local function Buffer_read_string(len)
 end
 
 local function Buffer_read_raw(data, len)
+	Buffer_ensure(len)
 	ffi.copy(data, buf + buf_pos, len)
 	buf_pos = buf_pos + len
 	return data
@@ -335,7 +340,10 @@ local function deserialize_value(seen)
 	elseif t == 241 then
 		--long resource
 		local idx = reserve_seen(seen)
-		local value = resource_registry[deserialize_value(seen)]
+		local name = deserialize_value(seen)
+		-- the name is written as a plain string, not registered as a seen value
+		seen[#seen] = nil
+		local value = resource_registry[name]
 		seen[idx] = value
 		return value
 	elseif t == 242 then
