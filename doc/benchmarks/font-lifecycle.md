@@ -12,8 +12,10 @@ fresh process. Both variants used the same full-feature native CMake build and
 frontend ba9cdf3b, the same 34 MB privately supplied Chinese EPUB, Zhuque Fangsong
 technical-preview font and Noto CJK/Arabic fallbacks, 1072×1448 at 300 dpi,
 low-memory profile, storage factor 4, clock/battery header disabled and footer
-disabled. Dependencies: Ubuntu 26.04, FreeType 2.13.3, HarfBuzz 12.3.2,
-libunibreak 6.1 and LunaSVG 2.3.9 with the existing base patches. Native baseline
+disabled. Build environment: Ubuntu 26.04, HarfBuzz headers 12.3.2,
+libunibreak 6.1 and LunaSVG 2.3.9 with the existing base patches. Both processes
+actually loaded the identical bundled FreeType 2.15.0 and HarfBuzz 14.5.1
+libraries (confirmed from process maps and runtime version functions). Native baseline
 engine f335f7a9; candidate engine 99a24af plus base's post-delete collection.
 
 Values below are medians across the three processes, in MiB (1024² bytes).
