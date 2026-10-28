@@ -18,6 +18,7 @@ pcall(ffi.cdef, [[
 pcall(ffi.cdef, "int getpgrp(void);")
 pcall(ffi.cdef, "int getpgid(int);")
 
+-- (Linux values)
 local RLIMIT_NPROC = 6
 local SIGCHLD = 17
 
@@ -174,6 +175,10 @@ describe("util.runInSubProcess failure paths", function()
     end)
 
     it("should fail cleanly when fork() fails, still running the after-fork hooks, and leak no fd", function()
+        if ffi.os ~= "Linux" then
+            pending("Linux only (RLIMIT_NPROC value, /proc/self/fd)")
+            return
+        end
         if C.getuid() == 0 then
             pending("root ignores RLIMIT_NPROC: cannot make fork() fail")
             return
@@ -203,6 +208,10 @@ describe("util.runInSubProcess failure paths", function()
 
     it("should fail cleanly when the intermediate process of a double fork cannot be reaped", function()
         -- With SIGCHLD ignored, children are reaped automatically, and waitpid() fails (ECHILD).
+        if ffi.os ~= "Linux" then
+            pending("Linux only (SIGCHLD value, /proc/self/fd)")
+            return
+        end
         local marker = os.tmpname()
         local old = C.signal(SIGCHLD, ffi.cast("spec_sighandler_t", 1)) -- SIG_IGN
         local fds = openFds()
