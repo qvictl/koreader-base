@@ -299,6 +299,11 @@ class HappyPathTest(GateCase):
         with self.assertRaises(rg.ApiError):
             gh.get("repos/x/y")
 
+    def test_auto_merge_setting_not_visible_to_the_token(self):
+        del self.state["repo"]["allow_auto_merge"]  # GITHUB_TOKEN does not see repository settings
+        self.run_gate()
+        self.assertEqual(self.automerge(), "enable")
+
     def test_repo_without_auto_merge_setting(self):
         self.state["repo"]["allow_auto_merge"] = False
         self.run_gate()
@@ -765,7 +770,7 @@ class DismissTest(GateCase):
         self.state["comments"] = [{"id": 5, "user": {"login": "github-actions[bot]"},
                                    "body": rg.MARKER + "\n" + rg.AUTOMERGE_STATE}]
         self.run_gate()
-        self.assertEqual(len(self.dismissed()), 1)
+        self.assertEqual(len(self.dismissed()), 2)  # the gate's and CodeRabbit's
         dismissal = next(w for w in self.gh.writes if w[1].endswith("/dismissals"))
         self.assertIn("没有未解决的审查对话", dismissal[2]["message"])
         self.assertEqual(self.automerge(), "disable")
@@ -776,6 +781,19 @@ class DismissTest(GateCase):
         self.state["auto_merge"] = {"mergeMethod": "MERGE", "enabledBy": {"login": "qvictl"}}
         self.run_gate()
         self.assertIsNone(self.automerge())
+
+    def test_coderabbit_approval_is_dismissed_while_conditions_fail(self):
+        # App approvals count toward the required approval (seen on qvictl/koreader#14).
+        self.state["reviews"] = [review("coderabbitai[bot]", "APPROVED", rid=20),
+                                 review("qvictl", "APPROVED", rid=21)]
+        self.state["threads"].append({"isResolved": False, "path": "p", "comments": {"nodes": []}})
+        self.run_gate()
+        self.assertEqual(self.dismissed(), ["repos/%s/pulls/7/reviews/20/dismissals" % REPO])  # not the human's
+
+    def test_coderabbit_approval_is_kept_when_conditions_hold(self):
+        self.state["reviews"] = [review("coderabbitai[bot]", "APPROVED", rid=20)]
+        self.run_gate()
+        self.assertEqual(self.dismissed(), [])
 
     def test_foreign_bot_approval_without_marker_is_dismissed(self):
         self.state["reviews"].append(review("github-actions[bot]", "APPROVED", rid=9, body="LGTM"))
