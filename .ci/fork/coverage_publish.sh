@@ -72,7 +72,7 @@ update() {
         echo
         echo "| Date | Commit | Overall | Unit tests only | Fork-owned modules | Owned target |"
         echo "|---|---|---:|---:|---:|---:|"
-        tac history.jsonl | head -n 200 | jq -r --arg repo "${repo}" \
+        tail -n 200 history.jsonl | tac | jq -r --arg repo "${repo}" \
             '"| \(.date) | [\(.commit[0:10])](https://github.com/\($repo)/commit/\(.commit)) | \(.overall * 100 | round / 100)% | \(if .unit then "\(.unit * 100 | round / 100)%" else "–" end) | \(.owned * 100 | round / 100)% | \(.owned_min // "–")% |"'
     } >HISTORY.md
     git add -A
