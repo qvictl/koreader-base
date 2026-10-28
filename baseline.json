@@ -1,42 +1,42 @@
 {
   "date": "2026-10-28",
   "overall": {
-    "covered": 5896,
-    "total": 12914,
-    "percent": 45.656,
+    "covered": 5923,
+    "total": 12943,
+    "percent": 45.762,
     "files": 54
   },
   "overall_unit": {
-    "covered": 5327,
-    "total": 12871,
-    "percent": 41.388,
+    "covered": 5354,
+    "total": 12900,
+    "percent": 41.504,
     "min": null
   },
   "diff_unit": {
-    "covered": 0,
-    "total": 0,
-    "percent": 100.000
+    "covered": 27,
+    "total": 29,
+    "percent": 93.103
   },
   "diff_combined": {
-    "covered": 0,
-    "total": 0,
-    "percent": 100.000
+    "covered": 27,
+    "total": 29,
+    "percent": 93.103
   },
   "ratchet": {
-    "baseline": 45.061,
-    "label": "main@4acd53bd (this change's base)"
+    "baseline": 45.656,
+    "label": "main@9abccb85 (this change's base)"
   },
   "owned": {
-    "covered": 89,
-    "total": 89,
+    "covered": 92,
+    "total": 92,
     "percent": 100.000,
     "min": 80,
     "ok": true,
     "modules": {
       "ffi/util.lua": {
         "scope": "func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD",
-        "covered": 89,
-        "total": 89,
+        "covered": 92,
+        "total": 92,
         "percent": 100.000
       }
     }
@@ -74,7 +74,7 @@
     }
   ],
   "ok": true,
-  "commit": "9abccb8593db8382dff860935bcbbd7f725ba11d",
+  "commit": "bcd3758deb3f5ce5fc784a6259caa1d9495abe62",
   "event": "push",
-  "updated": "2026-10-28T20:33:51Z"
+  "updated": "2026-10-28T20:42:58Z"
 }
