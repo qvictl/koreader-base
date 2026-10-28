@@ -32,7 +32,9 @@
 - 如果 AI 明显误判，在对话里回复理由后 Resolve，再评论 `@coderabbitai review` 请它重新审查最新提交。
 - CodeRabbit 的自动批准（原 `request_changes_workflow`）已关闭，`allow_author_approval: false`。因为 CodeRabbit 读取
   PR 分支上的 `.coderabbit.yaml`，PR 仍可能把它打开：网关在条件不满足时会撤销任何机器人（CodeRabbit 等）的批准，
-  只保留人的批准。
+  只保留人的批准。撤销是异步的（审查事件 → relay → 网关，通常一两分钟），这段时间里机器人的批准能满足分支保护：
+  这是已知的残余风险——只有网关会开启自动合并，所有者手动合并前应看一眼置顶评论。要彻底消除，可把 *Review gate*
+  改成条件不满足时失败并设为必需检查（代价是每个被阻塞的 PR 都显示一个失败的检查）。
 - 只要还有任何一个未解决的审查对话（AI 或人），网关就不会批准（第 3 项）。
 
 ## 自动批准与自动合并的条件

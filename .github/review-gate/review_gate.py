@@ -488,7 +488,9 @@ def check_ai(facts: Facts) -> Condition:
         if not mine:
             continue
         seen.add(label)
-        if any(r.get("commit_id") == head and r.get("state") != "DISMISSED" for r in mine) and label not in reviewed_head:
+        # A dismissed review of the head still proves it was reviewed (the gate
+        # itself dismisses bot approvals while its conditions fail).
+        if any(r.get("commit_id") == head for r in mine) and label not in reviewed_head:
             reviewed_head.append(label)
         decisive = [r for r in mine if r.get("state") in ("APPROVED", "CHANGES_REQUESTED")]
         if decisive:

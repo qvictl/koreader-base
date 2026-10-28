@@ -483,6 +483,11 @@ class AiReviewTest(GateCase):
                                  review("coderabbitai[bot]", "APPROVED", rid=2, at="2")]
         self.assertTrue(self.run_gate().ok)
 
+    def test_dismissed_approval_still_proves_the_review(self):
+        # The gate dismissed Gemini's approval while blocked; once unblocked it still counts.
+        self.state["reviews"] = [review("gemini-code-assist[bot]", "DISMISSED")]
+        self.assertTrue(self.run_gate().ok)
+
     def test_dismissed_changes_request_is_ignored(self):
         self.state["reviews"] = [review("coderabbitai[bot]", "DISMISSED", rid=1, at="1"),
                                  review("coderabbitai[bot]", "COMMENTED", rid=2, at="2")]
