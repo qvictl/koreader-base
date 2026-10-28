@@ -159,6 +159,15 @@ describe("RTC", function()
             assert.are.equal(22, tm.tm_hour)
         end)
 
+        it("should program a disabled alarm when asked to", function()
+            assert.is_true(RTC:setWakeupAlarm(1700000000))
+            assert.is_true(RTC:setWakeupAlarm(0, false))
+            assert.are.equal(0, dev.set.enabled)
+            assert.is_false(RTC:isWakeupAlarmScheduled())
+            assert.is_nil(RTC:getWakeupAlarm())
+            assert.is_nil(RTC:getWakeupAlarmEpoch())
+        end)
+
         it("should report a missing RTC", function()
             dev.fail.open = ENOENT
             local ok, re, err = RTC:setWakeupAlarm(1700000000)
@@ -176,6 +185,8 @@ describe("RTC", function()
             assert.are.equal("Inappropriate ioctl for device", err)
             assert.is_false(RTC:isWakeupAlarmScheduled())
             assert.is_nil(RTC:getWakeupAlarmEpoch())
+            -- The RTC was closed.
+            assert.are.equal(0, dev.open_fds)
         end)
 
         it("should report a failed close", function()
@@ -193,7 +204,7 @@ describe("RTC", function()
             assert.is_true(RTC:setWakeupAlarm(1700000000))
             dev.calls = {}
             RTC:unsetWakeupAlarm()
-            assert.are.equal("open", dev.calls[1][1])
+            assert.are.same({ "open", "RTC_AIE_OFF", "close" }, callNames(dev))
             assert.are.equal(0, dev.open_fds)
             assert.is_false(RTC:isWakeupAlarmScheduled())
             assert.is_nil(RTC:getWakeupAlarm())
@@ -218,6 +229,16 @@ describe("RTC", function()
             assert.are.same({ "open", "RTC_AIE_ON", "close" }, callNames(dev))
         end)
 
+        it("should disable the alarm interrupt", function()
+            assert.is_true(RTC:toggleAlarmInterrupt(false))
+            assert.are.same({ "open", "RTC_AIE_OFF", "close" }, callNames(dev))
+            dev.fail.ioctl = ENOTTY
+            local ok, re, err = RTC:toggleAlarmInterrupt(false)
+            assert.is_nil(ok)
+            assert.are.equal(-1, re)
+            assert.are.equal("Inappropriate ioctl for device", err)
+        end)
+
         it("should report failures", function()
             for _, case in ipairs({ { "open", ENOENT }, { "ioctl", ENOTTY }, { "close", EIO } }) do
                 dev.fail = { [case[1]] = case[2] }
@@ -225,6 +246,8 @@ describe("RTC", function()
                 assert.is_nil(ok)
                 assert.are.equal(-1, re)
                 assert.are.equal(ffi.string(real_C.strerror(case[2])), err)
+                -- (the RTC is closed whatever failed)
+                assert.are.equal(0, dev.open_fds)
             end
         end)
     end)
@@ -252,6 +275,8 @@ describe("RTC", function()
                     assert.is_nil(ok)
                     assert.are.equal(-1, re)
                     assert.are.equal(ffi.string(real_C.strerror(case[2])), err)
+                    -- (the RTC is closed whatever failed)
+                    assert.are.equal(0, dev.open_fds)
                 end
             end
         end)
@@ -343,6 +368,8 @@ describe("RTC", function()
                 assert.is_nil(ok)
                 assert.are.equal(-1, re)
                 assert.are.equal(ffi.string(real_C.strerror(case[2])), err)
+                -- (the RTC is closed whatever failed)
+                assert.are.equal(0, dev.open_fds)
                 for _, c in ipairs(dev.calls) do
                     assert.are_not.equal("settimeofday", c[1])
                 end
