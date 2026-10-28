@@ -1,0 +1,52 @@
+{
+  "_comment": "Review gate settings for qvictl/koreader-base (logic: review_gate.py, policy: REVIEW_POLICY.md).",
+  "merge_method": "MERGE",
+  "merge_method_overrides": [
+    {
+      "head_ref": "sync/upstream-*",
+      "method": "MERGE"
+    }
+  ],
+  "max_changed_lines": 500,
+  "test_paths": [
+    "spec/**",
+    "**/spec/**",
+    "**/*_spec.lua",
+    "test-runner/**"
+  ],
+  "doc_paths": [
+    "**/*.md",
+    "doc/**",
+    "docs/**"
+  ],
+  "sensitive_paths": [
+    ".github/**",
+    ".ci/**",
+    ".circleci/**",
+    "REVIEW_POLICY.md",
+    "CONTRIBUTING.md",
+    ".coderabbit.yaml",
+    ".coderabbit.yml",
+    ".gemini/**",
+    ".luacheckrc",
+    ".luacov",
+    ".gitmodules",
+    ".cmakelintrc",
+    "thirdparty/**",
+    "toolchain/**",
+    "cmake/**",
+    "CMakeLists.txt",
+    "**/CMakeLists.txt",
+    "**/*.cmake",
+    "Makefile",
+    "Makefile.defs",
+    "make/**",
+    "cache-key.base",
+    "origin.ldflags",
+    "kotasync/**",
+    "utils/**",
+    "test-runner/**"
+  ],
+  "sensitive_line_patterns": [],
+  "sync_head_prefix": "sync/upstream-"
+}
