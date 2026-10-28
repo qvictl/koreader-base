@@ -1,8 +1,7 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 #
 # CodeRabbit (primary AI reviewer) for qvictl/koreader-base. Policy: REVIEW_POLICY.md.
-# Gemini Code Assist (second opinion) reads .gemini/config.yaml and
-# .gemini/styleguide.md with the same priorities. The review gate
+# The review gate
 # (.github/workflows/review_gate.yml) counts a CodeRabbit review of the head commit and
 # blocks while CodeRabbit's latest decisive review is "Request changes".
 
@@ -84,9 +83,9 @@ reviews:
     - path: "{Makefile,Makefile.defs,CMakeLists.txt,**/CMakeLists.txt,cmake/**,kotasync/**,utils/**,cache-key.base}"
       instructions: |
         Build scripts: review with extra care, it merges without a human. Check reproducibility, pinned sources and checksums, and that compiler flags still target the Kindle toolchains (no -march=native).
-    - path: "{REVIEW_POLICY.md,CONTRIBUTING.md,.coderabbit.yaml,.gemini/**,.github/pull_request_template.md}"
+    - path: "{REVIEW_POLICY.md,CONTRIBUTING.md,.coderabbit.yaml,.github/pull_request_template.md}"
       instructions: |
-        Policy documents (review / coverage / contribution rules, AI reviewer configuration): review with extra care. Check consistency between REVIEW_POLICY.md, CONTRIBUTING.md, the PR template, .coderabbit.yaml, .gemini/ and the review gate config; flag any loosening of a rule that is not called out in the PR description.
+        Policy documents (review / coverage / contribution rules, AI reviewer configuration): review with extra care. Check consistency between REVIEW_POLICY.md, CONTRIBUTING.md, the PR template, .coderabbit.yaml and the review gate config; flag any loosening of a rule that is not called out in the PR description.
   tools:
     luacheck:
       enabled: true
@@ -124,7 +123,6 @@ knowledge_base:
     filePatterns:
       - "REVIEW_POLICY.md"
       - "CONTRIBUTING.md"
-      - ".gemini/styleguide.md"
   learnings:
     scope: local
   issues:
