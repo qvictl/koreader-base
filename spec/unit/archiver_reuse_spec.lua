@@ -32,6 +32,11 @@ describe("Archiver fixes", function()
     end
 
     it("should give files added from memory rw-r--r-- permissions", function()
+        -- Extraction honors the process umask: pin it, so that only the archived mode matters.
+        local ffi = require("ffi")
+        pcall(ffi.cdef, "unsigned int umask(unsigned int mask);")
+        local old_umask = ffi.C.umask(tonumber("022", 8))
+        finally(function() ffi.C.umask(old_umask) end)
         local r = Archiver.Reader:new()
         assert.is_true(r:open(make_zip()))
         r:next()

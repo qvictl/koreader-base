@@ -192,6 +192,10 @@ else
         -- NOTE: Moreover, the GNU implementation has a few potentially annoying quirks:
         --       it returns an empty string when path has a trailing slash (as well as for "/").
         --       So, we'll want to strip trailing slashes, too...
+        if in_path == "" then
+            -- POSIX: the basename of an empty path is "."
+            return "."
+        end
         local stripped_path = in_path:match(".*[^/]")
         if not stripped_path then
             -- Ensure basename("/") leads to "/" as per SUSv2 (the GNU implementation returns "")
