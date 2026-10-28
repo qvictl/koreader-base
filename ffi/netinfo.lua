@@ -181,7 +181,7 @@ end
 
 end -- }}}
 
-if ffi.os == "macos" then -- {{{
+if ffi.os == "OSX" then -- {{{
 
 function NetInfo:_process_ifaddr(ifa)
     if ifa.ifa_addr.sa_family ~= C.AF_LINK then
