@@ -32,7 +32,29 @@ describe("execute failures", function()
         local f = assert(io.open(out, "w"))
         f:setvbuf("full", 1024)
         f:write("parent-buffer")
-        local status = util.execute(path())
+        local status
+        local runner = package.loaded["luacov.runner"]
+        if runner and runner.initialized then
+            -- _exit bypasses LuaCov's exit handler. Save only the real child's
+            -- execution, separately from the parent, before the actual syscall.
+            local statsfile = runner.configuration.statsfile
+            withC({
+                fork = function()
+                    local pid = C.fork()
+                    if pid == 0 then
+                        runner.data = {}
+                        runner.configuration.statsfile = statsfile .. ".child-" .. C.getpid()
+                    end
+                    return pid
+                end,
+                _exit = function(code)
+                    pcall(runner.save_stats)
+                    C._exit(code)
+                end,
+            }, function() status = util.execute(path()) end)
+        else
+            status = util.execute(path())
+        end
         f:close()
         local r = assert(io.open(out, "r"))
         local content = r:read("*all")
