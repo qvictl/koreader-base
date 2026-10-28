@@ -18,6 +18,16 @@ return {
             { from = "2026-11-24", delta_pp = 5 },
             { from = "2026-12-22", delta_pp = 10 },
         },
+        -- The same files, covered by the unit tests alone (spec/unit). Unlike the targets
+        -- above, these are blocking (the "unit" gate) from their date. Plan: qvictl/koreader's
+        -- doc/coverage-plan.md.
+        unit = {
+            baseline = { date = "2026-10-27", percent = 28.62 }, -- main @ de93ce40 (unit stats only)
+            targets = {
+                { from = "2026-11-24", delta_pp = 5 },  -- ≥ 33.62%
+                { from = "2026-12-22", delta_pp = 10 }, -- ≥ 38.62%
+            },
+        },
     },
     owned = {
         list = ".ci/owned-modules.txt",

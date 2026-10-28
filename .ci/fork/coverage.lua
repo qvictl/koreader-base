@@ -8,12 +8,14 @@ stats of the unit tests and of the emulator integration tests:
   2. diff coverage (unit + integration);
   3. overall coverage of the configured paths, compared to main's (ratchet);
   4. coverage of the fork-owned modules (.ci/owned-modules.txt), against dated targets;
-  5. overall coverage vs its day-one baseline and dated targets (report only).
+  5. overall coverage vs its day-one baseline and dated targets (report only);
+  6. overall coverage by the unit tests alone vs its day-one baseline and dated targets
+     (`overall.unit` in the config): blocking from each target's date.
 
 Usage:
   luajit coverage.lua --config CONFIG.lua --src DIR [--diff FILE] [--fork-diff FILE]
       [--unit STATS]... [--integration STATS]... [--baseline-overall PCT]
-      [--enforce diff,ratchet,owned] [--today YYYY-MM-DD] [--title TEXT] [--note TEXT]
+      [--enforce diff,ratchet,owned,unit] [--today YYYY-MM-DD] [--title TEXT] [--note TEXT]
       [--md FILE] [--json FILE]
 
   --diff       unified diff (-U0) of the change being checked (PR), for gates 1 & 2
@@ -278,6 +280,7 @@ diff.combined.percent = pct(diff.combined.covered, diff.combined.total)
 -- 3 & 5: overall coverage. {{{
 
 local overall = { covered = 0, total = 0, files = 0 }
+local overall_unit = { covered = 0, total = 0 }
 do
     local quoted = {}
     for _, p in ipairs(config.overall.paths) do table.insert(quoted, "'" .. p .. "'") end
@@ -286,11 +289,14 @@ do
         if path:match("%.lua$") and not matchesAny(path, config.overall.exclude) then
             local cc, ct = count(classify(path, combined_hits))
             overall.covered, overall.total, overall.files = overall.covered + cc, overall.total + ct, overall.files + 1
+            local uc, ut = count(classify(path, unit_hits))
+            overall_unit.covered, overall_unit.total = overall_unit.covered + uc, overall_unit.total + ut
         end
     end
     p:close()
 end
 overall.percent = pct(overall.covered, overall.total)
+overall_unit.percent = pct(overall_unit.covered, overall_unit.total)
 
 -- }}}
 
@@ -409,6 +415,28 @@ gate("owned", "Fork-owned modules", owned.ok,
             return low and string.format("%.1f%% (%s)", low.percent, low.path:match("[^/]+$")) or "–"
         end)()),
     string.format("each ≥ %s%% (since %s)", owned.min or 0, owned.min_from or "–"))
+-- 6: overall unit-test coverage vs its dated targets (blocking from each target's date).
+local unit_cfg = config.overall.unit
+local unit_base = unit_cfg and unit_cfg.baseline
+local unit_target, unit_target_from, unit_next, unit_next_from
+if unit_base and unit_base.percent then
+    unit_target, unit_target_from = scheduled(unit_cfg.targets, "delta_pp")
+    unit_next, unit_next_from = nextScheduled(unit_cfg.targets, "delta_pp")
+    local value = string.format("%.2f%% (%+.2f pp vs day-one %.2f%%)", overall_unit.percent,
+        overall_unit.percent - unit_base.percent, unit_base.percent)
+    if unit_target then
+        local min = unit_base.percent + unit_target
+        overall_unit.min = min
+        gate("unit", "Overall coverage, unit tests", overall_unit.percent >= min, value,
+            string.format("≥ %.2f%% (since %s)%s", min, unit_target_from,
+                unit_next and string.format("; %.2f%% from %s", unit_base.percent + unit_next, unit_next_from) or ""))
+    elseif unit_next then
+        gate("unit", "Overall coverage, unit tests", true, value,
+            string.format("≥ %.2f%% from %s (not yet)", unit_base.percent + unit_next, unit_next_from))
+    else
+        gate("unit", "Overall coverage, unit tests", true, value, "no target")
+    end
+end
 local failed = false
 for _, g in ipairs(gates) do
     if g.enforced and not g.ok then failed = true end
@@ -448,6 +476,13 @@ if base and base.percent then
     otxt = otxt .. " (targets: report only)"
 end
 w(otxt .. ".")
+if unit_base and unit_base.percent then
+    w()
+    w(string.format("**Overall, unit tests only**: **%.2f%%** of %d executable lines; day-one baseline %.2f%% (%s)%s%s (targets: blocking from their date).",
+        overall_unit.percent, overall_unit.total, unit_base.percent, unit_base.date,
+        unit_target and string.format("; target %.2f%% since %s", unit_base.percent + unit_target, unit_target_from) or "",
+        unit_next and string.format("; target %.2f%% from %s", unit_base.percent + unit_next, unit_next_from) or ""))
+end
 w()
 w(string.format("**Fork-owned modules** (`%s`; target each ≥ %s%%%s):", config.owned.list, owned.min or 0,
     owned.next_min and string.format(", %s%% from %s", owned.next_min, owned.next_from) or ""))
@@ -501,6 +536,9 @@ if args.json then
     add("date", string.format("%q", today))
     add("overall", string.format('{"covered": %d, "total": %d, "percent": %.3f, "files": %d}',
         overall.covered, overall.total, overall.percent, overall.files))
+    add("overall_unit", string.format('{"covered": %d, "total": %d, "percent": %.3f, "min": %s}',
+        overall_unit.covered, overall_unit.total, overall_unit.percent,
+        overall_unit.min and string.format("%.3f", overall_unit.min) or "null"))
     add("diff_unit", string.format('{"covered": %d, "total": %d, "percent": %.3f}', diff.unit.covered, diff.unit.total, diff.unit.percent))
     add("diff_combined", string.format('{"covered": %d, "total": %d, "percent": %.3f}',
         diff.combined.covered, diff.combined.total, diff.combined.percent))
