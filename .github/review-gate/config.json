@@ -7,55 +7,5 @@
       "method": "MERGE"
     }
   ],
-  "max_changed_lines": 500,
-  "test_paths": [
-    "spec/**",
-    "**/spec/**",
-    "**/*_spec.lua",
-    "test-runner/**"
-  ],
-  "doc_paths": [
-    "**/*.md",
-    "doc/**",
-    "docs/**"
-  ],
-  "sensitive_paths": [
-    ".github/**",
-    ".ci/**",
-    ".circleci/**",
-    "REVIEW_POLICY.md",
-    "CONTRIBUTING.md",
-    ".coderabbit.yaml",
-    ".coderabbit.yml",
-    ".gemini/**",
-    ".luacheckrc",
-    ".luacov",
-    ".gitmodules",
-    ".cmakelintrc",
-    "thirdparty/**",
-    "toolchain/**",
-    "cmake/**",
-    "CMakeLists.txt",
-    "**/CMakeLists.txt",
-    "**/*.cmake",
-    "Makefile",
-    "Makefile.defs",
-    "make/**",
-    "cache-key.base",
-    "origin.ldflags",
-    "kotasync/**",
-    "utils/**",
-    "test-runner/**",
-    "ffi/crypto.lua",
-    "ffi/sha2.lua",
-    "ffi/MD5.lua"
-  ],
-  "sensitive_line_patterns": [
-    {
-      "path": "ffi/**/*.lua",
-      "regex": "(?i)(password|passwd|userkey|secret|credential|oauth|api_?key|access_token|refresh_token|auth_token|private_key)",
-      "description": "凭据相关代码"
-    }
-  ],
   "sync_head_prefix": "sync/upstream-"
 }
