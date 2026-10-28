@@ -24,7 +24,9 @@ describe("subprocess result pipes", function()
     it("returns available bytes without waiting for a live writer or closing the reader", function()
         local reader, writer = pipe()
         assert.are.equal(6, C.write(writer, "prefix", 6))
+        local original_flags = C.fcntl(reader, C.F_GETFL)
         local data, eof, drained = util.readAvailableFromFD(reader)
+        assert.are.equal(original_flags, C.fcntl(reader, C.F_GETFL))
         assert.are.equal("prefix", data)
         assert.is_false(eof)
         assert.is_true(drained)
@@ -48,16 +50,18 @@ describe("subprocess result pipes", function()
         end, true)
         assert.is_truthy(pid)
         pids[#pids + 1], fds[#fds + 1] = pid, reader
-        local chunks, finished = {}, false
-        for _ = 1, 5000 do
+        local chunks = {}
+        local ready = ffi.new("struct pollfd[1]")
+        ready[0].fd, ready[0].events = reader, C.POLLIN
+        while true do
+            local polled = C.poll(ready, 1, -1)
+            assert.is_true(polled > 0 or ffi.errno() == C.EINTR)
             local done = util.isSubProcessDone(pid)
             local data, eof, drained = util.readAvailableFromFD(reader)
             assert.is_string(data)
             chunks[#chunks + 1] = data
-            if eof or (done and drained) then finished = true; break end
-            util.usleep(1000)
+            if eof or (done and drained) then break end
         end
-        assert.is_true(finished)
         assert.are.equal(payload, table.concat(chunks))
     end)
 
@@ -147,6 +151,27 @@ describe("subprocess result pipes", function()
         end)
         assert.are.equal(4, #opened)
         for _, fd in ipairs(opened) do assert.are.equal(-1, C.fcntl(fd, C.F_GETFD)) end
+    end)
+
+    it("reports failure to restore the original descriptor flags", function()
+        local sets = 0
+        withC(util.readAvailableFromFD, {
+            fcntl = function(_, cmd)
+                if cmd == C.F_GETFL then return 0 end
+                sets = sets + 1
+                if sets == 1 then return 0 end
+                ffi.errno(C.EINVAL)
+                return -1
+            end,
+            read = function() return 0 end,
+        }, function()
+            local data, eof, drained, err = util.readAvailableFromFD(123)
+            assert.is_nil(data)
+            assert.is_false(eof)
+            assert.is_false(drained)
+            assert.is_string(err)
+            assert.are.equal(2, sets)
+        end)
     end)
 
     it("reports an invalid descriptor without claiming EOF", function()
