@@ -12,6 +12,8 @@
 # Pull requests: all gates are enforced (diff, ratchet, owned modules, dated unit-test
 # coverage target); upstream sync PRs
 # (bringing upstream commits): only the owned modules gate. Pushes: report only.
+# The ratchet compares with the coverage recorded for the main commit the change is based on
+# (or its nearest recorded ancestor), not with main's latest: see coverage_baseline.sh.
 # Outputs (GITHUB_OUTPUT): ok=true|false; writes coverage-result.json (for the history).
 
 set -eo pipefail
@@ -25,7 +27,8 @@ enforce=diff,ratchet,owned,unit
 note=''
 case "${EVENT_NAME}" in
     pull_request)
-        base="${PR_BASE}"
+        # The merge ref's first parent (pull_request.base.sha may be older).
+        base="$("${src}/.ci/fork/coverage_baseline.sh" base pull_request)" || base="${PR_BASE}"
         ;;
     workflow_dispatch)
         if [[ -n "${PR_NUMBER}" ]]; then
@@ -46,7 +49,13 @@ case "${EVENT_NAME}" in
 esac
 git fetch --quiet origin '+refs/heads/upstream:refs/remotes/origin/upstream' || true
 git fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage' 2>/dev/null || true
+git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null || true
 base="$(git merge-base "${base}" HEAD)"
+# The ratchet's base: the main commit the change is based on.
+case "${EVENT_NAME}" in
+    workflow_dispatch) ratchet_base="$("${src}/.ci/fork/coverage_baseline.sh" base workflow_dispatch)" || ratchet_base="${base}" ;;
+    *) ratchet_base="${base}" ;;
+esac
 if [[ -n "${enforce}" ]] && git rev-parse -q --verify origin/upstream >/dev/null; then
     all="$(git rev-list --count "${base}..HEAD")"
     own="$(git rev-list --count "${base}..HEAD" --not origin/upstream)"
@@ -55,7 +64,7 @@ if [[ -n "${enforce}" ]] && git rev-parse -q --verify origin/upstream >/dev/null
         note="This change brings $((all - own)) upstream commit(s) (upstream sync): only the owned modules gate is enforced."
     fi
 fi
-echo "base: ${base}, head: $(git rev-parse HEAD), enforce: ${enforce:-none}"
+echo "base: ${base}, ratchet base: ${ratchet_base}, head: $(git rev-parse HEAD), enforce: ${enforce:-none}"
 
 git diff -U0 "${base}" HEAD -- '*.lua' >"${tmp}/change.diff"
 if git rev-parse -q --verify origin/upstream >/dev/null; then
@@ -63,11 +72,18 @@ if git rev-parse -q --verify origin/upstream >/dev/null; then
 else
     : >"${tmp}/fork.diff"
 fi
-baseline=()
-if json="$(git show origin/coverage:baseline.json 2>/dev/null)"; then
-    pct="$(jq -r '.overall.percent // empty' <<<"${json}")"
-    [[ -z "${pct}" ]] || baseline=(--baseline-overall "${pct}")
+git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl" 2>/dev/null || : >"${tmp}/coverage-history.jsonl"
+if read -r bsha bpct bkind < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl"); then
+    if [[ "${bkind}" == exact ]]; then
+        label="main@${bsha:0:8} (this change's base)"
+    else
+        label="main@${bsha:0:8} (nearest ancestor with coverage of base ${ratchet_base:0:8})"
+    fi
+    baseline=(--baseline-overall "${bpct}" --baseline-label "${label}")
+else
+    baseline=(--baseline-label "no coverage recorded for base ${ratchet_base:0:8} or its ancestors")
 fi
+echo "ratchet baseline: ${baseline[*]}"
 
 # luajit & luacov.
 emu="${tmp}/coverage-luajit"

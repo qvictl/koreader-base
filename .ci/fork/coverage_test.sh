@@ -6,12 +6,16 @@
 # KODIR holds `luajit` and `spec/rocks` (luacov), e.g. the extracted emulator.
 # Checks, on a synthetic repository, the overall unit-test coverage gate ("unit"): only
 # the unit tests' stats count, and its dated targets are not enforced before their date,
-# then enforced (exit code 1) from it.
+# then enforced (exit code 1) from it. Then, on a synthetic git history, the ratchet's
+# baseline (coverage_baseline.sh): the PR's base commit (merge ref's first parent, or
+# merge-base with main), its record in history.jsonl or its nearest recorded ancestor's,
+# and PRs in flight on different bases each compared with their own base.
 
 set -eo pipefail
 
 kodir="$(cd "$1" && pwd)"
 tool="$(cd "$(dirname "$0")" && pwd)/coverage.lua"
+baseline_tool="$(cd "$(dirname "$0")" && pwd)/coverage_baseline.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
@@ -87,6 +91,115 @@ grep -q 'Overall, unit tests only' "${work}/out.md" || {
 sed -i '/unit = {/,/^        },$/d' "${work}/config.lua"
 run 2026-12-22 diff,ratchet,owned,unit 0 '([.gates[] | select(.id == "unit")] | length) == 0 and .ok' \
     'no overall.unit config: no unit gate'
+
+# Ratchet baseline. {{{
+# main: A0 (before the coverage records) - A (49.95%) - X (record missing: CI cancelled) - B (59.95%:
+# another PR merged with new tests).
+h="${work}/hist"
+g() { git -C "${h}" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"; }
+git init --quiet "${h}"
+g checkout --quiet -b main
+commit() {
+    g commit --quiet --allow-empty -m "$1"
+    g rev-parse HEAD
+}
+A0="$(commit A0)"
+A="$(commit A)"
+X="$(commit X)"
+B="$(commit B)"
+# PR branches: p1 from A, p2 from B, p3 from B, p4 from X.
+for pr in p1:"${A}" p2:"${B}" p3:"${B}" p4:"${X}"; do
+    g checkout --quiet -b "${pr%%:*}" "${pr#*:}"
+    commit "${pr%%:*}" >/dev/null
+done
+# refs/pull/N/merge: the PR merged into its base (first parent).
+merge_ref() {
+    g checkout --quiet --detach "$2"
+    g merge --quiet --no-ff --no-edit "$1"
+    g rev-parse HEAD
+}
+M1="$(merge_ref p1 "${A}")"
+M2="$(merge_ref p2 "${B}")"
+M3="$(merge_ref p3 "${B}")"
+M4="$(merge_ref p4 "${X}")"
+# Out of order (B published before A), with a re-run of A (last record wins), and a bad line.
+{
+    echo "{\"date\":\"2026-10-28\",\"commit\":\"${B}\",\"overall\":59.95}"
+    echo "{\"date\":\"2026-10-28\",\"commit\":\"${A}\",\"overall\":40.5}"
+    echo 'not json'
+    echo "{\"date\":\"2026-10-28\",\"commit\":\"${A}\",\"overall\":49.95}"
+} >"${work}/history.jsonl"
+
+# check DESCRIPTION ACTUAL EXPECTED
+check() {
+    if [[ "$2" == "$3" ]]; then
+        echo "ok: $1"
+    else
+        echo "FAIL: $1: got '$2', expected '$3'" 1>&2
+        failures=$((failures + 1))
+    fi
+}
+lookup() { (cd "${h}" && "${baseline_tool}" lookup "$1" "${2:-${work}/history.jsonl}"); }
+base_of() { (cd "${h}" && g checkout --quiet --detach "$1" && "${baseline_tool}" base "$2" main); }
+check 'lookup: exact base SHA' "$(lookup "${B}")" "${B} 59.95 exact"
+check 'lookup: re-run record of the same SHA wins' "$(lookup "${A}")" "${A} 49.95 exact"
+check 'lookup: missing SHA -> nearest recorded ancestor' "$(lookup "${X}")" "${A} 49.95 ancestor"
+check 'lookup: PR commit (not on main) -> nearest recorded ancestor' "$(lookup p2)" "${B} 59.95 ancestor"
+check 'lookup: nothing recorded among the ancestors -> no baseline' "$(lookup "${A0}")" ''
+: >"${work}/empty.jsonl"
+check 'lookup: empty history -> no baseline' "$(lookup "${B}" "${work}/empty.jsonl")" ''
+check 'lookup: missing history -> no baseline' "$(lookup "${B}" "${work}/missing.jsonl")" ''
+check 'lookup: unknown base -> no baseline' "$(lookup 0123456789abcdef0123456789abcdef01234567)" ''
+check 'base: pull_request merge ref -> first parent' "$(base_of "${M1}" pull_request)" "${A}"
+check 'base: pull_request merge ref on a newer base' "$(base_of "${M2}" pull_request)" "${B}"
+check 'base: workflow_dispatch on a branch -> merge-base with main' "$(base_of p4 workflow_dispatch)" "${X}"
+check 'base: pull_request without a merge commit -> merge-base with main' "$(base_of p1 pull_request)" "${A}"
+
+# Overall coverage of the synthetic repository: 50% (all of a.lua), 60% (+ 2 lines of main.lua).
+printf '10:frontend/a.lua\n1 1 1 1 1 1 1 1 1 1 \n' >"${work}/cov50.stats.out"
+cp "${work}/cov50.stats.out" "${work}/cov60.stats.out"
+printf '10:plugins/x.koplugin/main.lua\n1 1 0 0 0 0 0 0 0 0 \n' >>"${work}/cov60.stats.out"
+# ratchet MERGE_REF STATS EXPECTED_EXIT JQ_CHECK DESCRIPTION: the ratchet gate, as coverage.sh runs it.
+ratchet() {
+    local base bsha bpct bkind code=0 args=()
+    base="$(base_of "$1" pull_request)"
+    if read -r bsha bpct bkind < <(lookup "${base}"); then
+        args=(--baseline-overall "${bpct}" --baseline-label "main@${bsha:0:8} (${bkind})")
+    fi
+    (
+        cd "${kodir}"
+        ./luajit -e "package.path='spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua;'..package.path" \
+            "${tool}" --config "${work}/config.lua" --src "${repo}" --unit "${work}/$2" "${args[@]}" \
+            --enforce ratchet --today 2026-10-28 --md "${work}/out.md" --json "${work}/out.json" >/dev/null
+    ) || code=$?
+    if [[ ${code} -ne $3 ]]; then
+        echo "FAIL: $5: exit code ${code}, expected $3 ($(cat "${work}/out.json" 2>/dev/null))" 1>&2
+        failures=$((failures + 1))
+    elif ! jq -e "$4" "${work}/out.json" >/dev/null; then
+        echo "FAIL: $5: ${4} is false in $(cat "${work}/out.json")" 1>&2
+        failures=$((failures + 1))
+    else
+        echo "ok: $5"
+    fi
+}
+ratchet_gate='(.gates[] | select(.id == "ratchet"))'
+ratchet "${M1}" cov50.stats.out 0 ".ratchet.baseline == 49.95 and ${ratchet_gate}.ok" \
+    'parallel PRs: PR on base A (49.95%) at 50% while B (59.95%) merged meanwhile: passes'
+ratchet "${M2}" cov60.stats.out 0 ".ratchet.baseline == 59.95 and ${ratchet_gate}.ok" \
+    'parallel PRs: PR on the newer base B (59.95%) at 60%: passes'
+ratchet "${M3}" cov50.stats.out 1 ".ratchet.baseline == 59.95 and (${ratchet_gate}.ok | not) and .ok == false" \
+    'parallel PRs: PR on base B (59.95%) dropping to 50%: fails'
+ratchet "${M4}" cov50.stats.out 0 ".ratchet.baseline == 49.95 and (.ratchet.label | test(\"ancestor\")) and ${ratchet_gate}.ok" \
+    'PR on X (no record): compared with its nearest recorded ancestor A'
+grep -q "of main@${A:0:8} (ancestor)" "${work}/out.md" || {
+    echo 'FAIL: report lacks the main commit the ratchet baseline comes from' 1>&2
+    failures=$((failures + 1))
+}
+g checkout --quiet --detach "${A0}"
+g merge --quiet --no-ff --no-edit p1
+ratchet "$(g rev-parse HEAD)" cov50.stats.out 0 ".ratchet.baseline == null and ${ratchet_gate}.ok" \
+    'PR on A0 (nothing recorded): no baseline, the ratchet passes (as before any record)'
+# }}}
 
 if [[ ${failures} -gt 0 ]]; then
     echo "coverage_test.sh: ${failures} failure(s)" 1>&2
