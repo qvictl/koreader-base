@@ -78,8 +78,15 @@ describe("util.openCommandPipe", function()
     local function gate()
         local pipe = ffi.new("int[2]")
         assert.are.equal(0, C.pipe(pipe))
-        assert.is_true(pipe[0] < 10) -- POSIX shell single-digit fd redirection
         gates[#gates + 1] = pipe
+        util.runInSubProcess = function(func, with_pipe)
+            return original_run(function(pid, fd)
+                assert(C.dup2(pipe[0], 0) == 0)
+                C.close(pipe[1])
+                if pipe[0] ~= 0 then C.close(pipe[0]) end
+                func(pid, fd)
+            end, with_pipe)
+        end
         return pipe
     end
 
@@ -95,7 +102,7 @@ describe("util.openCommandPipe", function()
 
     it("distinguishes stdout EOF from a shell that has not exited", function()
         local ipc = gate()
-        local pid, fd = start("exec 1>&-; read ready <&" .. ipc[0])
+        local pid, fd = start("exec 1>&-; read ready")
         local pfd = ffi.new("struct pollfd[1]")
         pfd[0].fd, pfd[0].events = fd, C.POLLIN
         assert.is_true(C.poll(pfd, 1, 2000) > 0)
@@ -106,6 +113,25 @@ describe("util.openCommandPipe", function()
         assert.is_false(util.isSubProcessDone(pid))
         assert.are.equal(3, C.write(ipc[1], "go\n", 3))
         assert.are.equal("", collect(pid, fd))
+    end)
+
+    it("survives actual closed standard streams in an isolated worker", function()
+        local pid, fd = original_run(function(_, output_fd)
+            C.close(0); C.close(1)
+            util.runInSubProcess = function(func, with_pipe)
+                return original_run(function(child_pid, writer)
+                    assert(writer == 1, "the test must allocate stdout as the pipe writer")
+                    func(child_pid, writer)
+                end, with_pipe)
+            end
+            local shell_pid, reader = util.openCommandPipe("printf closed-stdout")
+            assert(shell_pid)
+            local output = collect(shell_pid, reader)
+            assert(util.writeToFD(output_fd, output, true))
+        end, true)
+        assert.is_number(pid)
+        pids[#pids + 1], fds[#fds + 1] = pid, fd
+        assert.are.equal("closed-stdout", collect(pid, fd))
     end)
 
     it("keeps stdout open when the writer is descriptor one", function()
