@@ -500,6 +500,29 @@ function util.runInSubProcess(func, with_pipe, double_fork)
     return pid, parent_read_fd, parent_write_fd
 end
 
+--- Start a shell command with a pipe for stdout; returns pid, read_fd.
+-- The child execs the shell directly, without leaving a resident Lua worker.
+-- The caller owns the fd and must drain it and reap pid independently: EOF
+-- does not imply shell exit, and descendants may outlive the shell.
+function util.openCommandPipe(command)
+    local shell = util.isAndroid() and "/system/bin/sh" or "/bin/sh"
+    return util.runInSubProcess(function(_, write_fd)
+        if C.dup2(write_fd, 1) < 0 then C._exit(127) end
+        if write_fd ~= 1 then
+            C.close(write_fd)
+        else
+            -- dup2(fd, fd) leaves FD_CLOEXEC intact when stdout was closed.
+            local flags = C.fcntl(1, C.F_GETFD)
+            if flags < 0 or C.fcntl(1, C.F_SETFD,
+                    ffi.cast("int", band(flags, bit.bnot(C.FD_CLOEXEC)))) < 0 then
+                C._exit(127)
+            end
+        end
+        C.execl(shell, "sh", "-c", command, ffi.cast("void *", nil))
+        C._exit(127)
+    end, true)
+end
+
 --- Collect subprocess so it does not become a zombie.
 -- This does not block, unless `wait` is `true`.
 -- Returns true if process was collected or has already exited, false if process is still running.
