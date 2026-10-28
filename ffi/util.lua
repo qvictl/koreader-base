@@ -192,7 +192,11 @@ else
         -- NOTE: Moreover, the GNU implementation has a few potentially annoying quirks:
         --       it returns an empty string when path has a trailing slash (as well as for "/").
         --       So, we'll want to strip trailing slashes, too...
-        local stripped_path = in_path:match(".*[^/]") or "/" -- Ensure basename("/") leads to "/" as per SUSv2
+        local stripped_path = in_path:match(".*[^/]")
+        if not stripped_path then
+            -- Ensure basename("/") leads to "/" as per SUSv2 (the GNU implementation returns "")
+            return "/"
+        end
         local c_path = ffi.new("char[?]", #stripped_path + 1, stripped_path)
         return ffi.string(C.basename(c_path))
     end
