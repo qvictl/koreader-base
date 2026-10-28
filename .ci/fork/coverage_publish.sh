@@ -28,7 +28,7 @@ else
 fi
 cd "${work}/c"
 
-jq -c '{date, commit, overall: .overall.percent, owned: .owned.percent, owned_ok: .owned.ok,
+jq -c '{date, commit, overall: .overall.percent, unit: (.overall_unit.percent // null), owned: .owned.percent, owned_ok: .owned.ok,
         owned_min: .owned.min, diff_unit: .diff_unit.percent, diff_combined: .diff_combined.percent}' \
     "${result}" >>history.jsonl
 jq '. + {updated: (now | todate)}' "${result}" >baseline.json
@@ -47,10 +47,10 @@ jq -n --arg m "$(printf '%.1f%%' "${owned}")" --arg c "$(color "${owned}")" \
     echo
     echo "Unit + emulator integration tests (luacov). Updated by CI on every push to main; the PR ratchet compares to \`baseline.json\`."
     echo
-    echo "| Date | Commit | Overall | Fork-owned modules | Owned target |"
-    echo "|---|---|---:|---:|---:|"
+    echo "| Date | Commit | Overall | Unit tests only | Fork-owned modules | Owned target |"
+    echo "|---|---|---:|---:|---:|---:|"
     tac history.jsonl | head -n 200 | jq -r --arg repo "${repo}" \
-        '"| \(.date) | [\(.commit[0:10])](https://github.com/\($repo)/commit/\(.commit)) | \(.overall * 100 | round / 100)% | \(.owned * 100 | round / 100)% | \(.owned_min // "–")% |"'
+        '"| \(.date) | [\(.commit[0:10])](https://github.com/\($repo)/commit/\(.commit)) | \(.overall * 100 | round / 100)% | \(if .unit then "\(.unit * 100 | round / 100)%" else "–" end) | \(.owned * 100 | round / 100)% | \(.owned_min // "–")% |"'
 } >HISTORY.md
 git add -A
 git commit --quiet -m "coverage: $(jq -r '.commit[0:12]' "${result}") overall ${overall}%, owned ${owned}%"

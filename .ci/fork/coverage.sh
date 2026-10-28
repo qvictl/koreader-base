@@ -9,7 +9,8 @@
 # `integration-coverage*/` (emulator integration tests).
 #
 # Environment: EVENT_NAME, PR_NUMBER, PR_BASE, PUSH_BEFORE, GH_TOKEN, GITHUB_REPOSITORY.
-# Pull requests: all gates are enforced (diff, ratchet, owned modules); upstream sync PRs
+# Pull requests: all gates are enforced (diff, ratchet, owned modules, dated unit-test
+# coverage target); upstream sync PRs
 # (bringing upstream commits): only the owned modules gate. Pushes: report only.
 # Outputs (GITHUB_OUTPUT): ok=true|false; writes coverage-result.json (for the history).
 
@@ -20,7 +21,7 @@ artifacts="$(cd "$1" && pwd)"
 tmp="${RUNNER_TEMP:-/tmp}"
 src="${PWD}"
 
-enforce=diff,ratchet,owned
+enforce=diff,ratchet,owned,unit
 note=''
 case "${EVENT_NAME}" in
     pull_request)
@@ -74,6 +75,8 @@ rm -rf "${emu}"
 mkdir -p "${emu}"
 tarball="$(find "${artifacts}" -name 'koreader-emulator-x86_64.tar.xz' -o -name 'base-luajit.tar.xz' | head -n1)"
 tar -C "${emu}" -xJf "${tarball}" koreader/luajit koreader/spec/rocks 2>/dev/null || tar -C "${emu}" -xJf "${tarball}"
+# Self-test of the gates' tool.
+"${src}/.ci/fork/coverage_test.sh" "${emu}/koreader" || exit 2
 stats=()
 while read -r f; do
     case "${f}" in
