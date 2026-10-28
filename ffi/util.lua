@@ -287,10 +287,13 @@ function util.execute(...)
         local pid = C.fork()
         if pid == 0 then
             local args = table.pack(...)
-            os.exit(C.execl(args[1], unpack(args, 1, args.n+1))) -- Last arg must be a NULL pointer
+            C._exit(C.execl(args[1], unpack(args, 1, args.n+1))) -- Last arg must be a NULL pointer
         end
+        if pid < 0 then return -1 end
         local status = ffi.new('int[1]')
-        C.waitpid(pid, status, 0)
+        while C.waitpid(pid, status, 0) < 0 do
+            if ffi.errno() ~= C.EINTR then return -1 end
+        end
         return status[0]
     end
 end
@@ -370,6 +373,12 @@ function util.runInSubProcess(func, with_pipe, double_fork)
                 return fail("failed creating pipe")
             end
             parent_write_fd, child_read_fd = pipe[1], pipe[0]
+        end
+        -- These channels belong to the Lua worker, not programs it may exec.
+        for _, fd in pairs({ parent_read_fd, child_write_fd, parent_write_fd, child_read_fd }) do
+            if C.fcntl(fd, C.F_SETFD, ffi.cast("int", C.FD_CLOEXEC)) < 0 then
+                return fail("failed setting pipe close-on-exec")
+            end
         end
     end
     -- Run before-fork hooks in the parent.  Callers (e.g. the SDL backend) use
@@ -482,6 +491,31 @@ function util.runInSubProcess(func, with_pipe, double_fork)
         C.close(child_write_fd)
     end
     return pid, parent_read_fd, parent_write_fd
+end
+
+--- Start a shell command with a pipe for stdout; returns pid, read_fd.
+-- The child execs the shell directly, without leaving a resident Lua worker.
+-- The caller owns the fd and must drain it and reap pid independently: EOF
+-- does not imply shell exit, and descendants may outlive the shell.
+-- Dismissed waits can leave the command running while draining its output.
+-- A reaped pid is not a safe handle for later descendant-group termination.
+function util.openCommandPipe(command)
+    local shell = util.isAndroid() and "/system/bin/sh" or "/bin/sh"
+    return util.runInSubProcess(function(_, write_fd)
+        if C.dup2(write_fd, 1) < 0 then C._exit(127) end
+        if write_fd ~= 1 then
+            C.close(write_fd)
+        else
+            -- dup2(fd, fd) leaves FD_CLOEXEC intact when stdout was closed.
+            local flags = C.fcntl(1, C.F_GETFD)
+            if flags < 0 or C.fcntl(1, C.F_SETFD,
+                    ffi.cast("int", band(flags, bit.bnot(C.FD_CLOEXEC)))) < 0 then
+                C._exit(127)
+            end
+        end
+        C.execl(shell, "sh", "-c", command, ffi.cast("void *", nil))
+        C._exit(127)
+    end, true)
 end
 
 --- Collect subprocess so it does not become a zombie.
@@ -606,6 +640,50 @@ function util.readAllFromFD(fd)
     C.close(fd)
     -- print("read fd closed")
     return table.concat(data)
+end
+
+local available_read_buffer
+
+--- Read available bytes without closing the descriptor.
+-- At most 1 MiB is read per call, so a continuous writer cannot monopolize
+-- the UI loop. Returns data, EOF, drained; drained is false at the read budget.
+-- The original descriptor flags are restored before returning.
+-- On error returns nil, false, false, error_message. The caller owns the fd.
+function util.readAvailableFromFD(fd)
+    local flags = C.fcntl(fd, C.F_GETFL)
+    if flags < 0 then return nil, false, false, posix.strerror() end
+    local was_nonblocking = band(flags, C.O_NONBLOCK) ~= 0
+    if not was_nonblocking
+        and C.fcntl(fd, C.F_SETFL, ffi.cast("int", bor(flags, C.O_NONBLOCK))) < 0 then
+        return nil, false, false, posix.strerror()
+    end
+    local function finish(data, eof, drained, err)
+        if not was_nonblocking and C.fcntl(fd, C.F_SETFL, ffi.cast("int", flags)) < 0 then
+            return nil, false, false, posix.strerror()
+        end
+        return data, eof, drained, err
+    end
+    local chunk_size = 8192
+    if not available_read_buffer then
+        available_read_buffer = ffi.new("char[?]", chunk_size)
+    end
+    local chunks = {}
+    for _i = 1, 128 do
+        local size = tonumber(C.read(fd, available_read_buffer, chunk_size))
+        if size > 0 then
+            chunks[#chunks + 1] = ffi.string(available_read_buffer, size)
+        elseif size == 0 then
+            return finish(table.concat(chunks), true, true)
+        else
+            local err = ffi.errno()
+            if err == C.EAGAIN then
+                return finish(table.concat(chunks), false, true)
+            elseif err ~= C.EINTR then
+                return finish(nil, false, false, posix.strerror(err))
+            end
+        end
+    end
+    return finish(table.concat(chunks), false, false)
 end
 
 --- Ensure content written to lua file or fd is flushed to the storage device.
