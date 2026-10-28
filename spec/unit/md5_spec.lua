@@ -12,6 +12,7 @@ describe("MD5 module", function()
         assert.is_equal("d41d8cd98f00b204e9800998ecf8427e", sha2.md5(""))
         assert.is_equal("93b885adfe0da089cdf634904fd59f71", sha2.md5("\0"))
         assert.is_equal("1b05aba914a8b12315c7ee52b42f3d35", sha2.md5("0123456789abcdefX"))
+        assert.is_equal("900150983cd24fb0d6963f7d28e17f72", sha2.md5("abc")) -- RFC 1321 test suite
     end)
 
     it("should calculate MD5 sum by updating", function()
