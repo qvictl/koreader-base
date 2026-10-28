@@ -17,6 +17,12 @@ describe("MD5 module", function()
         assert.is_equal("f96b697d7cb7938d525a2f31aaf161d0", sha2.md5("message digest"))
     end)
 
+    it("should calculate SHA-1 and SHA-256 test vectors", function()
+        -- FIPS 180-2 / RFC 3174 and RFC 6234 vectors for "abc"
+        assert.is_equal("a9993e364706816aba3e25717850c26c9cd0d89d", sha2.sha1("abc"))
+        assert.is_equal("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", sha2.sha256("abc"))
+    end)
+
     it("should calculate MD5 sum by updating", function()
         local update = sha2.md5()
         update("0123456789")
