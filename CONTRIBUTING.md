@@ -34,15 +34,18 @@ It is the `base` submodule of [qvictl/koreader](https://github.com/qvictl/koread
 ## Review and merge
 
 Every PR to `main` is reviewed by AI reviewers (CodeRabbit, Gemini Code Assist) and evaluated by the *Review gate*
-workflow, which keeps a checklist comment on the PR. The gate approves and enables auto-merge only when all required
-checks pass, an AI reviewer reviewed the head commit without requesting changes, every review thread is resolved, the
-change is small (≤ 500 non-test / non-doc lines) and touches no sensitive path (CI, policy, `thirdparty/` and build
-scripts); otherwise a maintainer decides (`human-approved` label). AI comments flagged as potential issues / bugs must be
-fixed or answered with a justification before resolving them. Full rules, override and activation steps:
-[REVIEW_POLICY.md](REVIEW_POLICY.md).
+workflow, which keeps a checklist comment on the PR. The gate approves and enables auto-merge (merge commit) only when all
+of these hold on the head commit: the required checks passed; an AI reviewer reviewed it and none requests changes;
+every review thread is resolved; at most 500 changed non-test / non-doc lines; no sensitive path (CI, policy, `thirdparty/`, crypto code, build scripts); not a draft,
+no `do-not-merge` label, and the author is a collaborator or has a merged PR already. A maintainer's `human-approved`
+label waives only the size, sensitive-path and first-time-contributor rules — never the checks, the AI review or the
+threads. AI comments flagged as potential issues / bugs must be fixed or answered with a justification before
+resolving them. Full rules and activation steps: [REVIEW_POLICY.md](REVIEW_POLICY.md).
 
-所有合入 `main` 的 PR 由 AI 审查（CodeRabbit、Gemini Code Assist）并经 *Review gate* 评估；只有全部条件满足时才自动批准和合并，
-否则由维护者决定。AI 标出的潜在问题 / bug 必须修复或回复理由后才能解决对话。详见 [REVIEW_POLICY.md](REVIEW_POLICY.md)。
+所有合入 `main` 的 PR 由 AI 审查（CodeRabbit、Gemini Code Assist）并经 *Review gate* 评估。只有最新提交上必需检查全部通过、
+AI 已审查且没有要求修改、所有审查对话已解决、非测试/文档改动不超过 500 行、未触及敏感路径、非草稿、无 `do-not-merge`
+且作者可信时，网关才自动批准并开启自动合并。维护者的 `human-approved` 标签只豁免行数、敏感路径和首次贡献者限制，
+不豁免检查、AI 审查和未解决对话。AI 标出的潜在问题 / bug 必须修复或回复理由后才能解决对话。详见 [REVIEW_POLICY.md](REVIEW_POLICY.md)。
 
 ## Running the tests locally
 

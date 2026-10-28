@@ -89,6 +89,8 @@ class FakeGitHub(rg.GitHub):
             return {"role_name": s["roles"].get(user, "none"), "permission": s["roles"].get(user, "none")}
         if path == "search/issues":
             return {"total_count": s["merged_prs"]}
+        if path.endswith("/check-suites"):
+            return {"check_suites": s.get("suites", [{"created_at": "2026-10-27T08:00:00Z"}])}
         if path.startswith("repos/%s/commits/" % REPO) and path.endswith("/pulls"):
             return s.get("commit_pulls", [])
         if path == "repos/%s/pulls" % REPO:
@@ -112,6 +114,8 @@ class FakeGitHub(rg.GitHub):
         return {}
 
     def graphql(self, query: str, variables: Dict[str, Any]) -> Any:
+        if "mutation" in query and self.s.get("enable_error") and "enablePullRequestAutoMerge" in query:
+            raise rg.ApiError(200, self.s["enable_error"])
         if "mutation" in query:
             kind = "enable" if "enablePullRequestAutoMerge" in query else "disable"
             self.writes.append(("GRAPHQL", kind, variables))
@@ -151,11 +155,12 @@ def base_state() -> Dict[str, Any]:
 class GateCase(unittest.TestCase):
     def setUp(self) -> None:
         self.state = base_state()
+        self.label_head: Optional[str] = None
 
     def run_gate(self, dry_run: bool = False, merge_token: bool = True):
         gh = FakeGitHub(self.state)
         merge_gh = gh if merge_token else None
-        facts = rg.collect(gh, REPO, 7)
+        facts = rg.collect(gh, REPO, 7, label_head=self.label_head)
         verdict = rg.evaluate(facts, CONFIG)
         actions, automerge_on = rg.apply(gh, merge_gh, facts, verdict, dry_run, log=lambda _m: None)
         body = rg.render(facts, verdict, automerge_on)
@@ -190,6 +195,10 @@ class GlobTest(unittest.TestCase):
         self.assertTrue(rg.glob_to_regex("base").match("base"))
         self.assertTrue(rg.glob_to_regex("sync/upstream-*").match("sync/upstream-20261027"))
         self.assertFalse(rg.glob_to_regex("weread/lib/updater.lua").match("weread/lib/updaterXlua"))
+        self.assertTrue(rg.glob_to_regex("{frontend,plugins}/**/*.lua").match("plugins/kosync.koplugin/main.lua"))
+        self.assertTrue(rg.glob_to_regex("{frontend,plugins}/**/*.lua").match("frontend/ui/a.lua"))
+        self.assertFalse(rg.glob_to_regex("{frontend,plugins}/**/*.lua").match("spec/unit/a.lua"))
+        self.assertTrue(rg.glob_to_regex("{.github,.ci}/**").match(".ci/x.sh"))
 
 
 class HappyPathTest(GateCase):
@@ -203,6 +212,7 @@ class HappyPathTest(GateCase):
         self.assertEqual(self.automerge(), "enable")
         enable = next(w for w in self.gh.writes if w[0] == "GRAPHQL")
         self.assertEqual(enable[2]["method"], "SQUASH")
+        self.assertEqual(enable[2]["head"], HEAD)
         self.assertEqual(self.result, "created")
         self.assertTrue(self.body.startswith(rg.MARKER))
         self.assertIn(rg.AUTOMERGE_STATE, self.body)
@@ -218,7 +228,8 @@ class HappyPathTest(GateCase):
     def test_sync_branch_uses_merge_commit(self):
         self.state["pr"]["head"]["ref"] = "sync/upstream-20261027"
         self.state["pr"]["labels"] = [{"name": "human-approved"}]
-        self.state["events"] = [{"event": "labeled", "label": {"name": "human-approved"}, "actor": {"login": "qvictl"}}]
+        self.state["events"] = [{"event": "labeled", "label": {"name": "human-approved"}, "actor": {"login": "qvictl"},
+                                 "created_at": "2026-10-27T12:00:00Z"}]
         v = self.run_gate()
         self.assertEqual(v.merge_method, "MERGE")
         self.assertTrue(v.is_sync)
@@ -228,6 +239,60 @@ class HappyPathTest(GateCase):
         self.assertTrue(self.approved())
         self.assertIsNone(self.automerge())
         self.assertIn("REVIEW_GATE_MERGE_TOKEN", self.body)
+        self.assertFalse(self.verdict.defer_automerge)
+
+    def test_automerge_is_deferred_to_the_token_job(self):
+        gh = FakeGitHub(self.state)
+        facts = rg.collect(gh, REPO, 7)
+        verdict = rg.evaluate(facts, CONFIG)
+        _actions, on = rg.apply(gh, None, facts, verdict, False, log=lambda _m: None, defer_automerge=True)
+        self.assertTrue(verdict.defer_automerge)
+        self.assertFalse(on)
+        self.assertNotIn("REVIEW_GATE_MERGE_TOKEN", rg.render(facts, verdict, on))
+        self.assertFalse(any(w[0] == "GRAPHQL" for w in gh.writes))
+
+    def test_main_reports_ready_prs_and_automerge_job_enables(self):
+        fake = FakeGitHub(self.state)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            old_env, old_cls = dict(os.environ), rg.GitHub
+            os.environ.update({"GITHUB_TOKEN": "t", "GITHUB_OUTPUT": str(out), "REVIEW_GATE_AUTOMERGE": "on"})
+            os.environ.pop("REVIEW_GATE_MERGE_TOKEN", None)
+            rg.GitHub = lambda *_a, **_k: fake  # type: ignore
+            try:
+                rg.main(["--repo", REPO, "--pr", "7", "--summary", str(Path(tmp) / "s.md")])
+                self.assertEqual(out.read_text().strip(), "automerge=7")
+                self.assertFalse(any(w[0] == "GRAPHQL" for w in fake.writes))
+                os.environ["REVIEW_GATE_MERGE_TOKEN"] = "m"
+                rg.main(["--repo", REPO, "--prs", "7", "--summary", str(Path(tmp) / "s.md")])
+                self.assertIn(("GRAPHQL", "enable"), [(w[0], w[1]) for w in fake.writes])
+            finally:
+                rg.GitHub = old_cls  # type: ignore
+                os.environ.clear()
+                os.environ.update(old_env)
+
+    def test_clean_pr_is_merged_directly_at_the_evaluated_head(self):
+        self.state["enable_error"] = '[{"message": "Pull request Pull request is in clean status"}]'
+        self.run_gate()
+        merge = [w for w in self.gh.writes if w[0] == "PUT" and w[1].endswith("/merge")]
+        self.assertEqual(merge, [("PUT", "repos/%s/pulls/7/merge" % REPO, {"sha": HEAD, "merge_method": "squash"})])
+
+    def test_unstable_pr_is_merged_directly(self):
+        # Mergeable with a failing non-required check (seen on qvictl/koreader#12).
+        self.state["enable_error"] = '[{"message": "Pull request Pull request is in unstable status"}]'
+        self.run_gate()
+        self.assertTrue(any(w[0] == "PUT" and w[1].endswith("/merge") and w[2]["sha"] == HEAD for w in self.gh.writes))
+
+    def test_other_automerge_errors_are_reported(self):
+        self.state["enable_error"] = "boom"
+        self.run_gate()
+        self.assertFalse(any(w[1].endswith("/merge") for w in self.gh.writes))
+        self.assertIn("开启自动合并失败", self.body)
+
+    def test_network_errors_become_api_errors(self):
+        gh = rg.GitHub("t", "http://127.0.0.1:9")  # nothing listens on the discard port
+        with self.assertRaises(rg.ApiError):
+            gh.get("repos/x/y")
 
     def test_repo_without_auto_merge_setting(self):
         self.state["repo"]["allow_auto_merge"] = False
@@ -280,6 +345,20 @@ class RequiredChecksTest(GateCase):
         self.state["check_runs"] += [check("ci", "cancelled", rid=11, at="2026-10-27T11:00:00Z")]
         self.assertFalse(self.run_gate().ok)
 
+    def test_queued_rerun_supersedes_older_success(self):
+        self.state["check_runs"].append(check("ci", None, status="queued", rid=0, at=None))
+        self.run_gate()
+        self.assertFalse(self.cond("checks").ok)
+        self.assertIn("`ci`（queued）", self.cond("checks").detail)
+
+    def test_completed_run_without_started_at_does_not_hide_a_newer_failure(self):
+        self.state["check_runs"] = [check("ci", "success", rid=1, at=None),
+                                    check("ci", "failure", rid=2, at="2026-10-27T10:00:00Z"),
+                                    check("tests-policy", rid=3)]
+        self.run_gate()
+        self.assertFalse(self.cond("checks").ok)
+        self.assertIn("`ci`（failure）", self.cond("checks").detail)
+
     def test_check_from_another_app_does_not_count(self):
         self.state["check_runs"][0]["app"] = {"id": 1}
         self.assertFalse(self.run_gate().ok)
@@ -322,6 +401,56 @@ class AiReviewTest(GateCase):
     def test_gemini_comment_review_on_head_is_enough(self):
         self.state["reviews"] = [review("gemini-code-assist[bot]", "COMMENTED")]
         self.assertTrue(self.run_gate().ok)
+
+    def cr_run(self, status="completed", conclusion="success",
+               summary="Result: Success - Review completed\nRun ID: `x`", title="Finished", slug="coderabbitai"):
+        return {"id": 50, "name": "CodeRabbit", "status": status, "conclusion": conclusion, "started_at": "z",
+                "app": {"id": 347564, "slug": slug}, "output": {"title": title, "summary": summary}}
+
+    def test_coderabbit_check_run_counts_when_no_review_was_posted(self):
+        # Clean PR: CodeRabbit posts no review, only its check run (seen on qvictl/weread.koplugin#36).
+        self.state["reviews"] = []
+        self.state["check_runs"].append(self.cr_run())
+        self.assertTrue(self.run_gate().ok)
+        self.assertIn("CodeRabbit 已审查", self.cond("ai").detail)
+
+    def test_coderabbit_check_run_in_progress_or_skipped(self):
+        self.state["reviews"] = []
+        self.state["check_runs"].append(self.cr_run(status="in_progress", conclusion=None))
+        self.run_gate()
+        self.assertFalse(self.cond("ai").ok)
+        self.assertIn("正在审查", self.cond("ai").detail)
+        self.state["check_runs"][-1] = self.cr_run(title="Review skipped", summary="Result: Success - Review completed")
+        self.assertFalse(self.run_gate().ok)
+        self.state["check_runs"][-1] = self.cr_run(conclusion="failure")
+        self.assertFalse(self.run_gate().ok)
+        self.state["check_runs"][-1] = self.cr_run(slug="impostor")
+        self.assertFalse(self.run_gate().ok)
+
+    def test_queued_coderabbit_run_supersedes_older_success(self):
+        self.state["reviews"] = []
+        old = self.cr_run()
+        old["started_at"] = "2026-10-28T01:00:00Z"
+        new = self.cr_run(status="queued", conclusion=None, summary="")
+        new["started_at"], new["id"] = None, 1  # newer although its id is smaller
+        self.state["check_runs"] += [old, new]
+        self.run_gate()
+        self.assertFalse(self.cond("ai").ok)
+        self.assertFalse(self.verdict.ok)
+
+    def test_newer_success_beats_older_failed_or_skipped_coderabbit_run(self):
+        self.state["reviews"] = []
+        old = self.cr_run(title="Review skipped")
+        old["started_at"] = "2026-10-28T01:00:00Z"
+        new = self.cr_run()
+        new["started_at"] = "2026-10-28T02:00:00Z"
+        self.state["check_runs"] += [old, new]
+        self.assertTrue(self.run_gate().ok)
+
+    def test_check_run_does_not_override_changes_requested(self):
+        self.state["reviews"] = [review("coderabbitai[bot]", "CHANGES_REQUESTED", commit=OLD)]
+        self.state["check_runs"].append(self.cr_run())
+        self.assertFalse(self.run_gate().ok)
 
     def test_human_review_does_not_count_as_ai(self):
         self.state["reviews"] = [review("someone", "APPROVED")]
@@ -402,6 +531,14 @@ class SensitivePathsTest(GateCase):
             self.run_gate()
             self.assertFalse(self.cond("sensitive").ok, name)
 
+    def test_directory_rule_covers_files_without_keywords(self):
+        config = dict(CONFIG, sensitive_paths=CONFIG["sensitive_paths"] + ["plugins/kosync.koplugin/**"])
+        self.add("plugins/kosync.koplugin/KOSyncClient.lua", patch="+    local base_url = server .. path")
+        facts = rg.collect(FakeGitHub(self.state), REPO, 7)
+        c = rg.check_sensitive(facts, config)
+        self.assertFalse(c.ok)
+        self.assertIn("KOSyncClient.lua", c.detail)
+
     def test_rename_out_of_sensitive_path_blocks(self):
         self.add("tools/moved.yml", previous=".github/workflows/release.yml")
         self.run_gate()
@@ -441,7 +578,9 @@ class EligibilityTest(GateCase):
 
     def test_do_not_merge_blocks_and_is_not_waived(self):
         self.state["pr"]["labels"] = [{"name": "do-not-merge"}, {"name": "human-approved"}]
-        self.state["events"] = [{"event": "labeled", "label": {"name": "human-approved"}, "actor": {"login": "qvictl"}}]
+        self.state["events"] = [{"event": "labeled", "label": {"name": "human-approved"}, "actor": {"login": "qvictl"},
+                                 "created_at": "2026-10-27T12:00:00Z"}]
+        self.label_head = HEAD
         v = self.run_gate()
         self.assertTrue(v.override)
         self.assertFalse(v.ok)
@@ -480,7 +619,8 @@ class EligibilityTest(GateCase):
         self.assertIn("自动化 PR", self.cond("eligible").detail)
         # Not even an admin override makes it approvable.
         self.state["pr"]["labels"] = [{"name": "human-approved"}]
-        self.state["events"] = [{"event": "labeled", "label": {"name": "human-approved"}, "actor": {"login": "qvictl"}}]
+        self.state["events"] = [{"event": "labeled", "label": {"name": "human-approved"}, "actor": {"login": "qvictl"},
+                                 "created_at": "2026-10-27T12:00:00Z"}]
         self.assertFalse(self.run_gate().ok)
         self.assertFalse(self.approved())
 
@@ -488,8 +628,9 @@ class EligibilityTest(GateCase):
 class OverrideTest(GateCase):
     def label(self, *actors: str):
         self.state["pr"]["labels"] = [{"name": "human-approved"}]
-        self.state["events"] = [{"event": "labeled", "label": {"name": "human-approved"}, "actor": {"login": a}}
-                                for a in actors]
+        self.state["events"] = [{"event": "labeled", "label": {"name": "human-approved"}, "actor": {"login": a},
+                                 "created_at": "2026-10-27T12:00:00Z"} for a in actors]
+        self.label_head = HEAD
         self.state["files"].append({"filename": ".github/workflows/x.yml", "additions": 600, "deletions": 0,
                                     "patch": "+x"})
 
@@ -530,6 +671,39 @@ class OverrideTest(GateCase):
         v = rg.evaluate(facts, CONFIG)
         self.assertFalse(v.override)
         self.assertIn("无法确认", v.override_note)
+
+    def test_label_is_bound_to_the_commit_it_was_applied_to(self):
+        self.label("qvictl")
+        v = self.run_gate()
+        self.assertTrue(v.override)
+        # A later run (no labeled event) reads the binding from the gate's override record,
+        # even when the sticky comment was rewritten without it.
+        self.state["comments"] = [
+            {"id": 3, "user": {"login": "github-actions[bot]"}, "body": "<!-- review-gate:override head=%s -->" % OLD},
+            {"id": 4, "user": {"login": "github-actions[bot]"}, "body": "<!-- review-gate:override head=%s -->" % HEAD},
+            {"id": 5, "user": {"login": "github-actions[bot]"}, "body": self.body}]
+        self.label_head = None
+        self.assertTrue(self.run_gate().override)
+        # New head (push after the label, or back to an old SHA): no longer covered.
+        self.state["pr"]["head"]["sha"] = OLD
+        v = self.run_gate()
+        self.assertFalse(v.override)
+        self.assertIn("重新添加", v.override_note)
+        self.assertFalse(self.approved())
+
+    def test_label_without_recorded_commit_fails_closed(self):
+        self.label("qvictl")
+        self.label_head = None
+        v = self.run_gate()
+        self.assertFalse(v.override)
+        self.assertIn("没有记录", v.override_note)
+
+    def test_binding_from_a_foreign_comment_is_ignored(self):
+        self.label("qvictl")
+        self.label_head = None
+        self.state["comments"] = [{"id": 4, "user": {"login": "mallory"},
+                                   "body": "<!-- review-gate:override head=%s -->" % HEAD}]
+        self.assertFalse(self.run_gate().override)
 
     def test_label_without_event_is_ignored(self):
         self.label()
@@ -639,13 +813,13 @@ class EventTest(unittest.TestCase):
             rg.collect(self.gh, REPO, 7)
         self.state["pr"]["base"]["ref"] = "main"
         self.state["pr"]["state"] = "closed"
-        out = rg.process(self.gh, None, REPO, 7, CONFIG, False, self.state["repo"], {})
+        out = rg.process(self.gh, None, REPO, 7, CONFIG, False, self.state["repo"], {})  # noqa
         self.assertIsNone(out)
         self.assertEqual(self.gh.writes, [])
 
 
 class ScheduleTest(GateCase):
-    NOW = rg.datetime(2026, 10, 28, 12, 0, tzinfo=rg.timezone.utc)
+    NOW = rg.datetime(2026, 10, 28, 11, 37, tzinfo=rg.timezone.utc)  # not a refresh slot
 
     def sticky(self, blockers: str, head: str = HEAD, updated: str = "2026-10-28T11:00:00Z") -> Dict[str, Any]:
         return {"id": 5, "user": {"login": "github-actions[bot]"}, "updated_at": updated,
@@ -667,10 +841,14 @@ class ScheduleTest(GateCase):
         self.assertTrue(self.needs(self.sticky("ai", head=OLD)))
         self.assertTrue(self.needs(self.sticky("threads")))
         self.assertTrue(self.needs(self.sticky("")))
-        self.assertFalse(self.needs(self.sticky("ai,threads")))
+        self.assertTrue(self.needs(self.sticky("ai,threads")))
+        self.assertTrue(self.needs(self.sticky("ai")))
         self.assertFalse(self.needs(self.sticky("checks,ai")))
         self.assertFalse(self.needs(self.sticky("sensitive,author")))
-        self.assertTrue(self.needs(self.sticky("ai", updated="2026-10-28T05:00:00Z")))
+        slot = rg.datetime(2026, 10, 28, 12, 7, tzinfo=rg.timezone.utc)
+        self.assertTrue(rg.schedule_needs_eval(self.state["pr"], self.sticky("size"), slot)[0])
+        late = rg.datetime(2026, 10, 28, 12, 22, tzinfo=rg.timezone.utc)
+        self.assertFalse(rg.schedule_needs_eval(self.state["pr"], self.sticky("size"), late)[0])
 
     def test_schedule_run_only_evaluates_changed_prs(self):
         self.run_gate()  # produce a real body: OK state
@@ -683,6 +861,8 @@ class ScheduleTest(GateCase):
             old_env, old_cls = dict(os.environ), rg.GitHub
             os.environ.update({"GITHUB_TOKEN": "t", "GITHUB_EVENT_PATH": str(event), "GITHUB_EVENT_NAME": "schedule"})
             rg.GitHub = lambda *_a, **_k: fake  # type: ignore
+            old_now = rg.utcnow
+            rg.utcnow = lambda: self.NOW  # type: ignore  # outside the refresh slots
             try:
                 rg.main(["--repo", REPO, "--event", "--summary", str(Path(tmp) / "s.md")])
                 self.assertEqual(fake.writes, [])  # skipped: no evaluation, no write
@@ -690,12 +870,37 @@ class ScheduleTest(GateCase):
                 rg.main(["--repo", REPO, "--event", "--summary", str(Path(tmp) / "s.md")])
                 self.assertTrue(any(w[0] == "PATCH" for w in fake.writes))  # head moved: evaluated
             finally:
+                rg.utcnow = old_now  # type: ignore
                 rg.GitHub = old_cls  # type: ignore
                 os.environ.clear()
                 os.environ.update(old_env)
 
 
 class MainTest(unittest.TestCase):
+    def test_labeled_event_binds_the_override_to_its_head(self):
+        state = base_state()
+        state["pr"]["labels"] = [{"name": "human-approved"}]
+        state["events"] = [{"event": "labeled", "label": {"name": "human-approved"}, "actor": {"login": "qvictl"}}]
+        fake = FakeGitHub(state)
+        with tempfile.TemporaryDirectory() as tmp:
+            event = Path(tmp) / "event.json"
+            event.write_text(json.dumps({"action": "labeled", "label": {"name": "human-approved"},
+                                         "pull_request": {"number": 7, "head": {"sha": HEAD}}}))
+            old_env, old_cls = dict(os.environ), rg.GitHub
+            os.environ.update({"GITHUB_TOKEN": "t", "GITHUB_EVENT_PATH": str(event),
+                               "GITHUB_EVENT_NAME": "pull_request_target"})
+            rg.GitHub = lambda *_a, **_k: fake  # type: ignore
+            try:
+                rg.main(["--repo", REPO, "--event", "--summary", str(Path(tmp) / "s.md")])
+            finally:
+                rg.GitHub = old_cls  # type: ignore
+                os.environ.clear()
+                os.environ.update(old_env)
+        posts = [w[2]["body"] for w in fake.writes if w[0] == "POST" and w[1].endswith("/comments")]
+        self.assertEqual(len(posts), 2)  # sticky comment + separate override record
+        self.assertNotIn("override head", posts[0])
+        self.assertIn("<!-- review-gate:override head=%s -->" % HEAD, posts[1])
+
     def test_main_event_mode_end_to_end(self):
         state = base_state()
         fake = FakeGitHub(state)

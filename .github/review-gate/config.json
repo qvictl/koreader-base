@@ -45,8 +45,17 @@
     "origin.ldflags",
     "kotasync/**",
     "utils/**",
-    "test-runner/**"
+    "test-runner/**",
+    "ffi/crypto.lua",
+    "ffi/sha2.lua",
+    "ffi/MD5.lua"
   ],
-  "sensitive_line_patterns": [],
+  "sensitive_line_patterns": [
+    {
+      "path": "ffi/**/*.lua",
+      "regex": "(?i)(password|passwd|userkey|secret|credential|oauth|api_?key|access_token|refresh_token|auth_token|private_key)",
+      "description": "凭据相关代码"
+    }
+  ],
   "sync_head_prefix": "sync/upstream-"
 }

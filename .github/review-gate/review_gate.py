@@ -49,22 +49,32 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 MARKER = "<!-- review-gate -->"
 APPROVAL_MARKER = "<!-- review-gate:approve -->"
 AUTOMERGE_STATE = "<!-- review-gate:automerge=on -->"
+# The commit a maintainer's `human-approved` was applied to (head SHA in the
+# `labeled` event's payload), recorded in a separate gate comment.
+OVERRIDE_RE = re.compile(r"<!-- review-gate:override head=([0-9a-f]{40}) -->")
 STATE_RE = re.compile(r"<!-- review-gate:state head=([0-9a-f]+) blockers=([a-z,]*) -->")
 # Scheduled runs re-evaluate a PR only when it may have changed without an
 # event (see schedule_needs_eval); every PR is still refreshed this often.
-SCHEDULE_REFRESH_HOURS = 6
+SCHEDULE_REFRESH_HOURS = 6  # full refresh in the first quarter hour of 00, 06, 12, 18 UTC
 GATE_LOGIN = "github-actions[bot]"
 AI_REVIEWERS = {
     "coderabbitai[bot]": "CodeRabbit",
     "gemini-code-assist[bot]": "Gemini Code Assist",
 }
+# CodeRabbit also reports every review as a check run on the reviewed commit
+# ("CodeRabbit", summary "Result: Success - Review completed"). When a review
+# produces no actionable comment it posts no PR review at all, so this check
+# run is the evidence that the head commit was reviewed.
+AI_CHECK_RUNS = {"coderabbitai": ("CodeRabbit", "CodeRabbit")}  # app slug: (check name, reviewer)
+AI_CHECK_DONE = re.compile(r"Review completed", re.IGNORECASE)
+AI_CHECK_NOT_DONE = re.compile(r"skip|pause|fail|error|cancel", re.IGNORECASE)
 OVERRIDE_LABEL = "human-approved"
 BLOCK_LABEL = "do-not-merge"
 MAINTAINER_ROLES = {"admin", "maintain"}
@@ -85,7 +95,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
 
 # --------------------------------------------------------------------------
-# Glob matching (`**` crosses directories, `*` and `?` do not).
+# Glob matching (`**` crosses directories, `*` and `?` do not, `{a,b}`
+# alternatives, not nested).
 
 def glob_to_regex(pattern: str) -> "re.Pattern[str]":
     out, i = [], 0
@@ -102,6 +113,10 @@ def glob_to_regex(pattern: str) -> "re.Pattern[str]":
         elif pattern[i] == "?":
             out.append("[^/]")
             i += 1
+        elif pattern[i] == "{" and "}" in pattern[i:]:
+            end = pattern.index("}", i)
+            out.append("(?:" + "|".join(glob_to_regex(alt).pattern[1:-1] for alt in pattern[i + 1:end].split(",")) + ")")
+            i = end + 1
         else:
             out.append(re.escape(pattern[i]))
             i += 1
@@ -148,7 +163,12 @@ class GitHub:
                 headers = {k.lower(): v for k, v in resp.headers.items()}
         except urllib.error.HTTPError as err:
             raise ApiError(err.code, err.read().decode(errors="replace")[:500]) from None
-        return (json.loads(raw) if raw else None), headers
+        except (urllib.error.URLError, OSError) as err:  # timeouts, resets, DNS
+            raise ApiError(0, "network error: %s" % err) from None
+        try:
+            return (json.loads(raw) if raw else None), headers
+        except ValueError as err:
+            raise ApiError(0, "invalid JSON: %s" % err) from None
 
     def request(self, method: str, path: str, body: Any = None) -> Any:
         url = path if path.startswith("http") else self.api_url + "/" + path.lstrip("/")
@@ -219,6 +239,7 @@ class Facts:
     override_actor: Optional[str] = None
     override_role: Optional[str] = None
     override_error: Optional[str] = None
+    override_head: Optional[str] = None
     author_merged_prs: Optional[int] = None
     auto_merge: Optional[Dict[str, Any]] = None
     pr_node_id: Optional[str] = None
@@ -238,7 +259,9 @@ class Facts:
 
 
 def collect(gh: GitHub, repo: str, number: int, repo_info: Optional[Dict[str, Any]] = None,
-            branch_cache: Optional[Dict[str, Any]] = None) -> Facts:
+            branch_cache: Optional[Dict[str, Any]] = None, label_head: Optional[str] = None) -> Facts:
+    """`label_head`: head SHA from the payload of the `labeled` event that added
+    `human-approved` (only set for that event's own run)."""
     owner, name = repo.split("/", 1)
     repo_info = repo_info or gh.get("repos/%s" % repo)
     pr = gh.get("repos/%s/pulls/%d" % (repo, number))
@@ -285,7 +308,7 @@ def collect(gh: GitHub, repo: str, number: int, repo_info: Optional[Dict[str, An
 
     ai_logins = set(AI_REVIEWERS)
     ai_activity = any((r.get("user") or {}).get("login") in ai_logins for r in reviews) or any(
-        (c.get("user") or {}).get("login") in ai_logins for c in comments)
+        (c.get("user") or {}).get("login") in ai_logins for c in comments) or bool(ai_check_runs(check_runs))
     sticky = find_sticky(comments)
 
     facts = Facts(
@@ -296,8 +319,14 @@ def collect(gh: GitHub, repo: str, number: int, repo_info: Optional[Dict[str, An
         auto_merge=auto_merge, pr_node_id=node_id, sticky=sticky)
 
     if OVERRIDE_LABEL in facts.labels:
-        facts.override_actor, facts.override_role, facts.override_error = labeler_role(gh, repo, number,
-                                                                                       facts.owner_login)
+        facts.override_actor, facts.override_role, facts.override_error = labeler_role(
+            gh, repo, number, facts.owner_login)
+        facts.override_head = label_head or bound_override_head(comments)
+        if not facts.override_error and facts.override_head != head:
+            facts.override_error = (
+                "它是在提交 `%s` 上添加的，当前 head 是 `%s`：管理员看过新改动后需移除并重新添加"
+                % (facts.override_head[:10], head[:10]) if facts.override_head else
+                "网关没有记录到它添加时的提交（例如那次运行被取消）：请移除并重新添加")
 
     if pr.get("author_association") not in COLLABORATOR_ASSOCIATIONS and facts.author:
         query = urllib.parse.quote("repo:%s is:pr is:merged author:%s" % (repo, facts.author))
@@ -306,6 +335,19 @@ def collect(gh: GitHub, repo: str, number: int, repo_info: Optional[Dict[str, An
         except ApiError:
             facts.author_merged_prs = None
     return facts
+
+
+def bound_override_head(comments: List[Dict[str, Any]]) -> Optional[str]:
+    """Head SHA from the gate's latest override record. Records are separate
+    comments that only the run of a `labeled` event creates and nothing
+    edits, so concurrent runs updating the sticky comment cannot lose them."""
+    head = None
+    for c in comments:
+        if (c.get("user") or {}).get("login") == GATE_LOGIN:
+            m = OVERRIDE_RE.search(c.get("body", ""))
+            if m:
+                head = m.group(1)
+    return head
 
 
 def labeler_role(gh: GitHub, repo: str, number: int, owner_login: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
@@ -352,6 +394,7 @@ class Verdict:
     is_sync: bool
     merge_method: str
     notes: List[str] = field(default_factory=list)
+    defer_automerge: bool = False
 
     @property
     def ok(self) -> bool:
@@ -362,10 +405,20 @@ class Verdict:
         return [c for c in self.conditions if not (c.ok or c.waived)]
 
 
+def newest(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The most recent check run. A run that is not completed and has not
+    started yet (queued, `started_at` null) is newer than any started one: it
+    was created by a later push or re-run, so an older success must not count
+    while it is pending. A completed run without `started_at` is not treated
+    as newest (the Checks API does not require the field)."""
+    return max(runs, key=lambda r: (r.get("started_at") is None and r.get("status") != "completed",
+                                    r.get("started_at") or "", r.get("id") or 0))
+
+
 def latest_by_name(runs: List[Dict[str, Any]], context: str, app_id: Optional[int]) -> Optional[Dict[str, Any]]:
     matching = [r for r in runs if r.get("name") == context
                 and (app_id in (None, -1) or (r.get("app") or {}).get("id") == app_id)]
-    return max(matching, key=lambda r: (r.get("started_at") or "", r.get("id") or 0)) if matching else None
+    return newest(matching) if matching else None
 
 
 def check_required(facts: Facts) -> Condition:
@@ -403,17 +456,36 @@ def check_required(facts: Facts) -> Condition:
         len(facts.required_checks), "、".join("`%s`" % r["context"] for r in facts.required_checks)))
 
 
+def ai_check_runs(runs: List[Dict[str, Any]]) -> List[Tuple[str, Dict[str, Any]]]:
+    """(reviewer, latest run) for every AI reviewer that reports a check run."""
+    found = []
+    for slug, (name, label) in AI_CHECK_RUNS.items():
+        mine = [r for r in runs if (r.get("app") or {}).get("slug") == slug and r.get("name") == name]
+        if mine:
+            found.append((label, newest(mine)))
+    return found
+
+
 def check_ai(facts: Facts) -> Condition:
     title = "AI 审查已覆盖最新提交且无 Request changes"
     head = facts.head_sha
-    reviewed_head, requesting, seen = [], [], set()
+    reviewed_head, requesting, seen, running = [], [], set(), []
+    for label, run in ai_check_runs(facts.check_runs):
+        seen.add(label)
+        output = run.get("output") or {}
+        text = "%s %s" % (output.get("title") or "", output.get("summary") or "")
+        if run.get("status") != "completed":
+            running.append(label)
+        elif (run.get("conclusion") == "success" and AI_CHECK_DONE.search(text)
+              and not AI_CHECK_NOT_DONE.search(output.get("title") or "")):
+            reviewed_head.append(label)
     for login, label in AI_REVIEWERS.items():
         mine = [r for r in facts.reviews if (r.get("user") or {}).get("login") == login
                 and r.get("state") not in ("PENDING",)]
         if not mine:
             continue
         seen.add(label)
-        if any(r.get("commit_id") == head and r.get("state") != "DISMISSED" for r in mine):
+        if any(r.get("commit_id") == head and r.get("state") != "DISMISSED" for r in mine) and label not in reviewed_head:
             reviewed_head.append(label)
         decisive = [r for r in mine if r.get("state") in ("APPROVED", "CHANGES_REQUESTED")]
         if decisive:
@@ -425,6 +497,8 @@ def check_ai(facts: Facts) -> Condition:
                          % "、".join(requesting))
     if reviewed_head:
         return Condition("ai", title, True, "%s 已审查 `%s`" % ("、".join(reviewed_head), head[:10]))
+    if running:
+        return Condition("ai", title, False, "%s 正在审查 `%s`" % ("、".join(running), head[:10]), pending=True)
     if not facts.ai_activity:
         return Condition("ai", title, False, "等待 AI 审查：本 PR 尚无 CodeRabbit / Gemini Code Assist 的审查"
                          "（应用可能尚未安装——咨询模式，网关只报告、不批准）", pending=True)
@@ -640,8 +714,10 @@ def render(facts: Facts, verdict: Verdict, automerge_on: bool) -> str:
 # Actions.
 
 ENABLE_AUTOMERGE = """
-mutation($id: ID!, $method: PullRequestMergeMethod!) {
-  enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: $method}) { clientMutationId }
+mutation($id: ID!, $method: PullRequestMergeMethod!, $head: GitObjectID!) {
+  enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: $method, expectedHeadOid: $head}) {
+    clientMutationId
+  }
 }
 """
 DISABLE_AUTOMERGE = """
@@ -650,8 +726,13 @@ mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { 
 
 
 def apply(gh: GitHub, merge_gh: Optional[GitHub], facts: Facts, verdict: Verdict, dry_run: bool,
-          log: Callable[[str], None] = print) -> Tuple[List[str], bool]:
-    """Approve / dismiss / auto-merge. Returns (actions taken, auto-merge enabled by the gate)."""
+          log: Callable[[str], None] = print, defer_automerge: bool = False) -> Tuple[List[str], bool]:
+    """Approve / dismiss / auto-merge. Returns (actions taken, auto-merge enabled by the gate).
+
+    Without `merge_gh` and with `defer_automerge`, a PR ready for auto-merge is
+    only flagged (verdict.defer_automerge): the workflow's `automerge` job, the
+    only one that can read REVIEW_GATE_MERGE_TOKEN (environment `review-gate`,
+    default branch only), then re-runs the gate for it with the token."""
     repo, number, head = facts.repo, facts.pr["number"], facts.head_sha
     actions: List[str] = []
     gate_enabled_automerge = bool(facts.sticky and AUTOMERGE_STATE in facts.sticky.get("body", ""))
@@ -712,12 +793,31 @@ def apply(gh: GitHub, merge_gh: Optional[GitHub], facts: Facts, verdict: Verdict
     elif not facts.allow_auto_merge:
         verdict.notes.append("仓库未开启 *Allow auto-merge*：已批准，需手动合并（启用步骤见 REVIEW_POLICY.md）")
     elif merge_gh is None:
-        verdict.notes.append("未配置 `REVIEW_GATE_MERGE_TOKEN`：已批准，需手动合并"
-                             "（用 GITHUB_TOKEN 合并不会触发 main 上的 push 工作流）")
+        if defer_automerge:
+            verdict.defer_automerge = True
+        else:
+            verdict.notes.append("自动合并未启用（需要 `REVIEW_GATE_MERGE_TOKEN`，见 REVIEW_POLICY.md 启用步骤）：已批准，需手动合并")
+    elif facts.pr_node_id and dry_run:
+        actions.append("（演练）开启自动合并（%s）" % verdict.merge_method.lower())
     elif facts.pr_node_id:
-        if run("开启自动合并（%s）" % verdict.merge_method.lower(), lambda: merge_gh.graphql(
-                ENABLE_AUTOMERGE, {"id": facts.pr_node_id, "method": verdict.merge_method})):
+        try:
+            merge_gh.graphql(ENABLE_AUTOMERGE, {"id": facts.pr_node_id, "method": verdict.merge_method, "head": head})
+            actions.append("开启自动合并（%s）" % verdict.merge_method.lower())
             automerge_on = True
+        except ApiError as err:
+            # GitHub refuses auto-merge on a PR that is mergeable right now:
+            # "clean" (all checks green) or "unstable" (only non-required
+            # checks failing).
+            if not re.search(r"is in (clean|unstable) status", str(err), re.IGNORECASE):
+                actions.append("开启自动合并失败：%s" % err)
+                verdict.notes.append("⚠️ 开启自动合并失败（HTTP %s），下次运行会重试" % err.status)
+                log("::warning::enable auto-merge failed: %s" % err)
+            else:
+                # Already mergeable: GitHub refuses auto-merge, merge now,
+                # pinned to the evaluated head.
+                run("直接合并 `%s`（%s）" % (head[:10], verdict.merge_method.lower()), lambda: merge_gh.request(
+                    "PUT", "repos/%s/pulls/%d/merge" % (repo, number),
+                    {"sha": head, "merge_method": verdict.merge_method.lower()}))
     return actions, automerge_on
 
 
@@ -780,7 +880,7 @@ def schedule_needs_eval(pr: Dict[str, Any], sticky: Optional[Dict[str, Any]], no
     (a review thread resolved or unresolved) and for missed events. So a PR is
     re-evaluated only when it has no sticky comment yet, its head moved, it is
     blocked by unresolved threads only, it was approved (conditions may stop
-    holding), or its comment is older than SCHEDULE_REFRESH_HOURS."""
+    holding), or it is a refresh slot (every SCHEDULE_REFRESH_HOURS hours)."""
     if not sticky:
         return True, "no sticky comment"
     m = STATE_RE.search(sticky.get("body", ""))
@@ -789,15 +889,19 @@ def schedule_needs_eval(pr: Dict[str, Any], sticky: Optional[Dict[str, Any]], no
     head, blockers = m.group(1), set(filter(None, m.group(2).split(",")))
     if head != pr["head"]["sha"]:
         return True, "head moved"
-    if blockers <= {"threads"}:
-        return True, "approved or only blocked by threads"
-    try:
-        age = now - datetime.strptime(sticky.get("updated_at", ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except ValueError:
-        return True, "unknown comment age"
-    if age > timedelta(hours=SCHEDULE_REFRESH_HOURS):
+    if blockers <= {"threads", "ai"}:
+        # No event fires when a thread is resolved, nor (in general) when
+        # CodeRabbit's check suite completes on a SHA that already has one.
+        return True, "approved or only blocked by AI review / threads"
+    # The comment is not edited when unchanged, so its age cannot drive the
+    # refresh: use fixed slots instead (one scheduled run per slot).
+    if now.hour % SCHEDULE_REFRESH_HOURS == 0 and now.minute < 15:
         return True, "periodic refresh"
     return False, "unchanged (blocked by %s)" % ",".join(sorted(blockers))
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def find_sticky(comments: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -806,21 +910,30 @@ def find_sticky(comments: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 
 def process(gh: GitHub, merge_gh: Optional[GitHub], repo: str, number: int, config: Dict[str, Any], dry_run: bool,
-            repo_info: Dict[str, Any], branch_cache: Dict[str, Any]) -> Optional[str]:
+            repo_info: Dict[str, Any], branch_cache: Dict[str, Any],
+            defer_automerge: bool = False, label_head: Optional[str] = None) -> Optional[Tuple[str, bool]]:
     try:
-        facts = collect(gh, repo, number, repo_info, branch_cache)
+        facts = collect(gh, repo, number, repo_info, branch_cache, label_head)
     except OutOfScope:
         print("#%d: not an open PR to %s, skipped" % (number, repo_info["default_branch"]))
         return None
     verdict = evaluate(facts, config)
-    actions, automerge_on = apply(gh, merge_gh, facts, verdict, dry_run)
+    actions, automerge_on = apply(gh, merge_gh, facts, verdict, dry_run, defer_automerge=defer_automerge)
     body = render(facts, verdict, automerge_on)
     result = upsert_comment(gh, facts, body, dry_run)
+    if label_head and facts.override_actor and not dry_run:
+        try:
+            gh.request("POST", "repos/%s/issues/%d/comments" % (repo, number), {"body": (
+                "审查网关：`%s` 由 @%s 添加于提交 `%s`，只对这个提交有效；之后有新提交需重新添加。\n"
+                "<!-- review-gate:override head=%s -->"
+                % (OVERRIDE_LABEL, facts.override_actor, label_head[:10], label_head))})
+        except ApiError as err:
+            print("::warning::#%d: override record not written: %s" % (number, err))
     print("#%d %s: %s; comment %s; actions: %s" % (
         number, facts.head_sha[:10], "OK" if verdict.ok else "blocked by " + ",".join(c.key for c in verdict.blockers),
         result, "; ".join(actions) or "none"))
     done = "\n".join("- " + a for a in actions) or "- 无"
-    return "## #%d\n\n%s\n**本次操作：**\n%s\n" % (number, body, done)
+    return "## #%d\n\n%s\n**本次操作：**\n%s\n" % (number, body, done), verdict.defer_automerge
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -828,6 +941,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY"))
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument("--pr", type=int)
+    group.add_argument("--prs", help="comma / space separated PR numbers (the automerge job)")
     group.add_argument("--all-open", action="store_true")
     group.add_argument("--event", action="store_true")
     ap.add_argument("--config")
@@ -844,24 +958,33 @@ def main(argv: Optional[List[str]] = None) -> int:
     merge_token = os.environ.get("REVIEW_GATE_MERGE_TOKEN")
     merge_gh = GitHub(merge_token, api) if merge_token else None
     dry_run = args.dry_run or os.environ.get("REVIEW_GATE_DRY_RUN", "").lower() == "true"
+    # Repository variable REVIEW_GATE_AUTOMERGE=on: the token is configured in
+    # environment `review-gate`; flag ready PRs for the automerge job.
+    defer_automerge = merge_gh is None and os.environ.get("REVIEW_GATE_AUTOMERGE", "").lower() == "on"
     config = load_config(args.config)
     repo_info = gh.get("repos/%s" % args.repo)
 
     event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+    label_heads: Dict[int, str] = {}
     numbers: Optional[List[int]]
     if args.pr:
         numbers = [args.pr]
+    elif args.prs is not None:
+        numbers = [int(n) for n in re.split(r"[,\s]+", args.prs) if n]
     elif args.all_open:
         numbers = None
     else:
         with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as fh:
             event = json.load(fh)
         numbers = prs_from_event(gh, args.repo, event_name, event)
+        if (event_name == "pull_request_target" and event.get("action") == "labeled"
+                and (event.get("label") or {}).get("name") == OVERRIDE_LABEL):
+            label_heads[int(event["pull_request"]["number"])] = event["pull_request"]["head"]["sha"]
     if numbers is None:
         open_prs = gh.get_all("repos/%s/pulls?state=open&base=%s" % (
             args.repo, urllib.parse.quote(repo_info["default_branch"], safe="")))
         numbers = []
-        now = datetime.now(timezone.utc)
+        now = utcnow()
         for pr in open_prs:
             if args.event and event_name == "schedule":
                 try:
@@ -875,13 +998,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                     continue
             numbers.append(pr["number"])
 
-    summaries = []
+    summaries, ready = [], []
     branch_cache: Dict[str, Any] = {}
     for number in sorted(set(numbers)):
         try:
-            summary = process(gh, merge_gh, args.repo, number, config, dry_run, repo_info, branch_cache)
-            if summary:
-                summaries.append(summary)
+            result = process(gh, merge_gh, args.repo, number, config, dry_run, repo_info, branch_cache,
+                             defer_automerge, label_heads.get(number))
+            if result:
+                summaries.append(result[0])
+                if result[1]:
+                    ready.append(number)
         except ApiError as err:
             # e.g. the read-only token of a fork PR's review event: the next
             # scheduled run (default branch, write token) catches up.
@@ -891,6 +1017,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             fh.write("\n\n".join(summaries) + "\n")
     if not numbers:
         print("No pull request to evaluate.")
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as fh:
+            fh.write("automerge=%s\n" % " ".join(str(n) for n in ready))
     return 0
 
 
