@@ -5,7 +5,6 @@
 # .gemini/styleguide.md with the same priorities. The review gate
 # (.github/workflows/review_gate.yml) counts a CodeRabbit review of the head commit and
 # blocks while CodeRabbit's latest decisive review is "Request changes".
-# This file is a sensitive path: changes need a human (`human-approved`).
 
 language: zh-CN
 tone_instructions: >-
@@ -15,14 +14,13 @@ early_access: false
 
 reviews:
   profile: assertive
-  # No approvals and no "Request changes" from CodeRabbit (the former
-  # `request_changes_workflow`): an app approval counts toward the required
-  # approval of `main` and would bypass the review gate, which must be the
-  # only approver (REVIEW_POLICY.md). CodeRabbit's findings block through
-  # their unresolved review threads; the gate counts its "Review completed"
-  # check as the AI review of the head commit.
+  # Request changes for blocking findings; approve once they are resolved and
+  # the latest commit is reviewed (the current name of the former
+  # `request_changes_workflow`). The approval counts as the required approval
+  # of `main`; the review gate approves too and dismisses bot approvals when a
+  # check fails or a thread is open (REVIEW_POLICY.md).
   auto_approvals:
-    enabled: false
+    enabled: true
     allow_author_approval: false
   high_level_summary: true
   high_level_summary_in_walkthrough: true
@@ -82,13 +80,13 @@ reviews:
         Tests: check they exercise the behaviour the PR changes (not only mocks), that a bug fix's regression test would fail without the fix, that they are deterministic (no sleeps / timing assumptions, no real network), clean up temp files and global state, and stay fast. Flag weakened assertions or deleted tests.
     - path: "{.github,.ci,.circleci}/**"
       instructions: |
-        CI / policy / release tooling: this is a sensitive path (a human must approve). Check for: weakened or skipped required checks, `pull_request_target` or `workflow_run` jobs that check out or execute PR code, secrets or write tokens exposed to untrusted code, script injection via `${{ github.event.* }}` in `run:`, unpinned or new third-party actions, broadened `permissions:`, and changes that would let a PR approve or merge itself.
+        CI / policy / release tooling: review with extra care (it merges without a human). Check for: weakened or skipped required checks, `pull_request_target` or `workflow_run` jobs that check out or execute PR code, secrets or write tokens exposed to untrusted code, script injection via `${{ github.event.* }}` in `run:`, unpinned or new third-party actions, broadened `permissions:`, and changes that would let a PR approve or merge itself.
     - path: "{Makefile,Makefile.defs,CMakeLists.txt,**/CMakeLists.txt,cmake/**,kotasync/**,utils/**,cache-key.base}"
       instructions: |
-        Build scripts: sensitive path, a human must approve. Check reproducibility, pinned sources and checksums, and that compiler flags still target the Kindle toolchains (no -march=native).
+        Build scripts: review with extra care, it merges without a human. Check reproducibility, pinned sources and checksums, and that compiler flags still target the Kindle toolchains (no -march=native).
     - path: "{REVIEW_POLICY.md,CONTRIBUTING.md,.coderabbit.yaml,.gemini/**,.github/pull_request_template.md}"
       instructions: |
-        Policy documents (review / coverage / contribution rules, AI reviewer configuration): sensitive path, a human must approve. Check consistency between REVIEW_POLICY.md, CONTRIBUTING.md, the PR template, .coderabbit.yaml, .gemini/ and the review gate config; flag any loosening of a rule that is not called out in the PR description.
+        Policy documents (review / coverage / contribution rules, AI reviewer configuration): review with extra care. Check consistency between REVIEW_POLICY.md, CONTRIBUTING.md, the PR template, .coderabbit.yaml, .gemini/ and the review gate config; flag any loosening of a rule that is not called out in the PR description.
   tools:
     luacheck:
       enabled: true
