@@ -1,15 +1,15 @@
 {
   "date": "2026-10-28",
   "overall": {
-    "covered": 5669,
+    "covered": 5793,
     "total": 12900,
-    "percent": 43.946,
+    "percent": 44.907,
     "files": 54
   },
   "overall_unit": {
-    "covered": 5180,
+    "covered": 5304,
     "total": 12864,
-    "percent": 40.267,
+    "percent": 41.231,
     "min": null
   },
   "diff_unit": {
@@ -70,7 +70,7 @@
     }
   ],
   "ok": true,
-  "commit": "7af67dd4257526cf99837131a39913e53e8bd977",
+  "commit": "14cd5dc261ff8f6cab1865b8d751ed5392100cda",
   "event": "push",
-  "updated": "2026-10-28T12:04:29Z"
+  "updated": "2026-10-28T12:09:19Z"
 }
