@@ -1119,6 +1119,7 @@ char *dirname(char *);
 end
 
 ffi.cdef[[
+static const unsigned F_GETFD = 1;
 static const unsigned F_SETFD = 2;
 static const unsigned F_GETFL = 3;
 static const unsigned F_SETFL = 4;
