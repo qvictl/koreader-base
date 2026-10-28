@@ -298,7 +298,7 @@ function Writer:addPath(entry_root, root, recursive, mtime)
     local size = ffi.new("size_t [1]")
     local offs = ffi.new("int64_t [1]")
     if libarchive.archive_read_disk_open(rd, root) ~= libarchive.ARCHIVE_OK then
-        self.err = archive_error_string(self.archive)
+        self.err = archive_error_string(rd)
         print("Archive.Writer:addPath failed:", self.err)
         return
     end
