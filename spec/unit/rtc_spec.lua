@@ -159,6 +159,15 @@ describe("RTC", function()
             assert.are.equal(22, tm.tm_hour)
         end)
 
+        it("should program a disabled alarm when asked to", function()
+            assert.is_true(RTC:setWakeupAlarm(1700000000))
+            assert.is_true(RTC:setWakeupAlarm(0, false))
+            assert.are.equal(0, dev.set.enabled)
+            assert.is_false(RTC:isWakeupAlarmScheduled())
+            assert.is_nil(RTC:getWakeupAlarm())
+            assert.is_nil(RTC:getWakeupAlarmEpoch())
+        end)
+
         it("should report a missing RTC", function()
             dev.fail.open = ENOENT
             local ok, re, err = RTC:setWakeupAlarm(1700000000)
@@ -193,7 +202,7 @@ describe("RTC", function()
             assert.is_true(RTC:setWakeupAlarm(1700000000))
             dev.calls = {}
             RTC:unsetWakeupAlarm()
-            assert.are.equal("open", dev.calls[1][1])
+            assert.are.same({ "open", "RTC_AIE_OFF", "close" }, callNames(dev))
             assert.are.equal(0, dev.open_fds)
             assert.is_false(RTC:isWakeupAlarmScheduled())
             assert.is_nil(RTC:getWakeupAlarm())
@@ -216,6 +225,16 @@ describe("RTC", function()
             dev.calls = {}
             assert.is_true(RTC:toggleAlarmInterrupt())
             assert.are.same({ "open", "RTC_AIE_ON", "close" }, callNames(dev))
+        end)
+
+        it("should disable the alarm interrupt", function()
+            assert.is_true(RTC:toggleAlarmInterrupt(false))
+            assert.are.same({ "open", "RTC_AIE_OFF", "close" }, callNames(dev))
+            dev.fail.ioctl = ENOTTY
+            local ok, re, err = RTC:toggleAlarmInterrupt(false)
+            assert.is_nil(ok)
+            assert.are.equal(-1, re)
+            assert.are.equal("Inappropriate ioctl for device", err)
         end)
 
         it("should report failures", function()
