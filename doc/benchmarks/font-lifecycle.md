@@ -50,9 +50,18 @@ when a deleted middle cache entry leaves a hidden reference in a tail slot.
 
 Build baseline and candidate with identical dependency versions, feature flags
 and optimization; only the font lifecycle patch and wrapper collection differ.
-Use the companion KOReader `tools/benchmark_font_memory.sh` with the same
-`--book`, `--font` and frontend commit for both runtimes. It records RSS/PSS,
-FreeType finalizers, timings, screenshots and real ReaderUI close/reopen checks.
+The persistent tool is supplied by [KOReader PR #31](https://github.com/qvictl/koreader/pull/31),
+not by the measured ba9cdf3b frontend commit. Use
+[`tools/benchmark_font_memory.sh` at 0acff817c](https://github.com/qvictl/koreader/blob/0acff817c/tools/benchmark_font_memory.sh)
+and its matching scenario/driver sources with `--kodir` pointing to each
+controlled runtime; keep the same `--book`, `--font` and runtime frontend commit
+for both variants. The tool records RSS/PSS, FreeType finalizers, timings,
+screenshots and real ReaderUI close/reopen checks. The historical samples above
+used a temporary scenario with the same three-cycle workload and a 0.5 s
+post-close wait; the persistent tool separates immediate `closed_N` and
+`settled_N` samples, and independently confirms that preloading leaves the
+selected runtime FreeType unchanged. A further isolated-copy pair using this
+tool reproduced zero candidate faces and byte-identical page-21 screenshots.
 Set FONT_BENCH_EXPECT_ZERO=1 only for the fixed runtime. The book is private and
 is not included in either repository; the regular integration scenario uses a
 public synthetic CJK EPUB instead.
