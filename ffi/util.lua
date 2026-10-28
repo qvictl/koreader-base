@@ -384,6 +384,12 @@ function util.runInSubProcess(func, with_pipe, double_fork)
             end
             parent_write_fd, child_read_fd = pipe[1], pipe[0]
         end
+        -- These channels belong to the Lua worker, not programs it may exec.
+        for _, fd in pairs({ parent_read_fd, child_write_fd, parent_write_fd, child_read_fd }) do
+            if C.fcntl(fd, C.F_SETFD, ffi.cast("int", C.FD_CLOEXEC)) < 0 then
+                return fail("failed setting pipe close-on-exec")
+            end
+        end
     end
     -- Run before-fork hooks in the parent.  Callers (e.g. the SDL backend) use
     -- this to stop subsystem threads that may hold glibc malloc arena locks.
@@ -619,6 +625,50 @@ function util.readAllFromFD(fd)
     C.close(fd)
     -- print("read fd closed")
     return table.concat(data)
+end
+
+local available_read_buffer
+
+--- Read available bytes without closing the descriptor.
+-- At most 1 MiB is read per call, so a continuous writer cannot monopolize
+-- the UI loop. Returns data, EOF, drained; drained is false at the read budget.
+-- The original descriptor flags are restored before returning.
+-- On error returns nil, false, false, error_message. The caller owns the fd.
+function util.readAvailableFromFD(fd)
+    local flags = C.fcntl(fd, C.F_GETFL)
+    if flags < 0 then return nil, false, false, posix.strerror() end
+    local was_nonblocking = band(flags, C.O_NONBLOCK) ~= 0
+    if not was_nonblocking
+        and C.fcntl(fd, C.F_SETFL, ffi.cast("int", bor(flags, C.O_NONBLOCK))) < 0 then
+        return nil, false, false, posix.strerror()
+    end
+    local function finish(data, eof, drained, err)
+        if not was_nonblocking and C.fcntl(fd, C.F_SETFL, ffi.cast("int", flags)) < 0 then
+            return nil, false, false, posix.strerror()
+        end
+        return data, eof, drained, err
+    end
+    local chunk_size = 8192
+    if not available_read_buffer then
+        available_read_buffer = ffi.new("char[?]", chunk_size)
+    end
+    local chunks = {}
+    for _i = 1, 128 do
+        local size = tonumber(C.read(fd, available_read_buffer, chunk_size))
+        if size > 0 then
+            chunks[#chunks + 1] = ffi.string(available_read_buffer, size)
+        elseif size == 0 then
+            return finish(table.concat(chunks), true, true)
+        else
+            local err = ffi.errno()
+            if err == C.EAGAIN then
+                return finish(table.concat(chunks), false, true)
+            elseif err ~= C.EINTR then
+                return finish(nil, false, false, posix.strerror(err))
+            end
+        end
+    end
+    return finish(table.concat(chunks), false, false)
 end
 
 --- Ensure content written to lua file or fd is flushed to the storage device.
