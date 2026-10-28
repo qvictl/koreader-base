@@ -12,6 +12,7 @@ on:
       - '.github/review-gate/**'
       - '.github/workflows/review_gate.yml'
       - '.github/workflows/review_gate_tests.yml'
+      - '.github/workflows/review_gate_relay.yml'
   push:
     branches:
       - main
