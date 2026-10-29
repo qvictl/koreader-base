@@ -18,6 +18,28 @@
 
 set -eo pipefail
 
+# Also exercised offline: a unit-only re-run must not erase real combined data.
+merge_record() {
+    local result="$1" history="$2" commit
+    commit="$(jq -r '.commit' "${result}")"
+    jq -n --arg c "${commit}" --slurpfile result "${result}" --slurpfile history "${history}" '
+        ($history | map(select(.commit == $c)) | last // {}) as $old |
+        $result[0] as $new |
+        $old + {date: $new.date, commit: $c,
+            overall: ($new.overall.percent // $old.overall),
+            unit: ($new.overall_unit.percent // $old.unit),
+            owned: ($new.owned.percent // $old.owned),
+            owned_unit: ($new.owned_unit.percent // $old.owned_unit),
+            owned_ok: (if $new.owned != null then $new.owned.ok else $old.owned_ok end),
+            owned_min: ($new.owned.min // $old.owned_min),
+            diff_unit: ($new.diff_unit.percent // $old.diff_unit),
+            diff_combined: ($new.diff_combined.percent // $old.diff_combined)} |
+        .mode = (if .overall == null then "unit" else "combined" end)'
+}
+if [[ "${1:-}" == --merge-record ]]; then
+    merge_record "$2" "$3"
+    exit
+fi
 result="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 repo="${GITHUB_REPOSITORY:?}"
 commit="$(jq -r '.commit' "${result}")"
@@ -44,36 +66,42 @@ checkout() {
 
 update() {
     # History: this commit's record replaces any previous one (re-run).
+    [[ -f history.jsonl ]] || : >history.jsonl
     {
         [[ ! -f history.jsonl ]] || jq -R -c --arg c "${commit}" 'fromjson? | objects | select(.commit != $c)' history.jsonl
-        jq -c '{date, commit, overall: .overall.percent, unit: (.overall_unit.percent // null), owned: .owned.percent, owned_ok: .owned.ok,
-                owned_min: .owned.min, diff_unit: .diff_unit.percent, diff_combined: .diff_combined.percent}' "${result}"
+        merge_record "${result}" history.jsonl | jq -c .
     } >history.jsonl.tmp
     mv history.jsonl.tmp history.jsonl
-    # Baseline: unless this commit is an ancestor of the current one (older main commit).
-    local old
-    old="$(jq -r '.commit // empty' baseline.json 2>/dev/null || true)"
-    if [[ -n "${old}" ]] && [[ "${old}" != "${commit}" ]] && git merge-base --is-ancestor "${commit}" "${old}" 2>/dev/null; then
-        echo "baseline.json kept at ${old} (${commit} is older)"
-    else
-        jq '. + {updated: (now | todate)}' "${result}" >baseline.json
+    # Keep separate latest measured baselines: daily unit data is never combined data.
+    local target old
+    for target in baseline.json baseline-unit.json; do
+        if [[ "${target}" == baseline.json ]] && ! jq -e '.overall.percent != null' "${result}" >/dev/null; then
+            continue
+        fi
+        old="$(jq -r '.commit // empty' "${target}" 2>/dev/null || true)"
+        if [[ -n "${old}" ]] && [[ "${old}" != "${commit}" ]] && git merge-base --is-ancestor "${commit}" "${old}" 2>/dev/null; then
+            echo "${target} kept at ${old} (${commit} is older)"
+        else
+            jq '. + {updated: (now | todate)}' "${result}" >"${target}"
+        fi
+    done
+    if [[ -f baseline.json ]]; then
+        overall="$(jq -r '.overall.percent' baseline.json)"
+        owned="$(jq -r '.owned.percent' baseline.json)"
+        jq -n --arg m "$(printf '%.1f%%' "${overall}")" --arg c "$(color "${overall}")" \
+            '{schemaVersion: 1, label: "coverage", message: $m, color: $c}' >badge.json
+        jq -n --arg m "$(printf '%.1f%%' "${owned}")" --arg c "$(color "${owned}")" \
+            '{schemaVersion: 1, label: "fork-owned coverage", message: $m, color: $c}' >badge-owned.json
     fi
-
-    overall="$(jq -r '.overall.percent' baseline.json)"
-    owned="$(jq -r '.owned.percent' baseline.json)"
-    jq -n --arg m "$(printf '%.1f%%' "${overall}")" --arg c "$(color "${overall}")" \
-        '{schemaVersion: 1, label: "coverage", message: $m, color: $c}' >badge.json
-    jq -n --arg m "$(printf '%.1f%%' "${owned}")" --arg c "$(color "${owned}")" \
-        '{schemaVersion: 1, label: "fork-owned coverage", message: $m, color: $c}' >badge-owned.json
     {
         echo "# Coverage history of \`main\` (${repo})"
         echo
-        echo "Unit + emulator integration tests (luacov). Updated by CI on every push to main; a PR's ratchet compares with the record of its base commit (\`history.jsonl\`)."
+        echo "Unit coverage is recorded on main pushes; combined coverage only on validated release candidates. Unmeasured values are shown as –."
         echo
         echo "| Date | Commit | Overall | Unit tests only | Fork-owned modules | Owned target |"
         echo "|---|---|---:|---:|---:|---:|"
         tail -n 200 history.jsonl | tac | jq -r --arg repo "${repo}" \
-            '"| \(.date) | [\(.commit[0:10])](https://github.com/\($repo)/commit/\(.commit)) | \(.overall * 100 | round / 100)% | \(if .unit then "\(.unit * 100 | round / 100)%" else "–" end) | \(.owned * 100 | round / 100)% | \(.owned_min // "–")% |"'
+            '"| \(.date) | [\(.commit[0:10])](https://github.com/\($repo)/commit/\(.commit)) | \(if .overall != null then "\(.overall * 100 | round / 100)%" else "–" end) | \(if .unit then "\(.unit * 100 | round / 100)%" else "–" end) | \(if .owned != null then "\(.owned * 100 | round / 100)%" else "–" end) | \(.owned_min // "–")% |"'
     } >HISTORY.md
     git add -A
     git diff --cached --quiet || git commit --quiet -m "coverage: ${commit:0:12} overall $(jq -r '.overall.percent' "${result}")%, owned $(jq -r '.owned.percent' "${result}")%"
@@ -86,7 +114,8 @@ for attempt in 1 2 3 4 5; do
         cd "${dir}"
         update
     )
-    if git -C "${dir}" push --quiet origin HEAD:refs/heads/coverage; then
+    if git -C "${dir}" -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+        push --quiet origin HEAD:refs/heads/coverage; then
         echo "coverage branch updated with ${commit}: $(tail -n1 "${dir}/history.jsonl")"
         exit 0
     fi

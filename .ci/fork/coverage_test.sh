@@ -201,6 +201,47 @@ ratchet "$(g rev-parse HEAD)" cov50.stats.out 0 ".ratchet.baseline == null and $
     'PR on A0 (nothing recorded): no baseline, the ratchet passes (as before any record)'
 # }}}
 
+# Split measurements: daily unit gates cannot silently become combined measurements.
+printf '10:frontend/a.lua\n1 1 1 1 1 1 1 1 0 0 \n' >"${work}/unit80.stats.out"
+cat >"${work}/changed.diff" <<'EOF'
+--- a/frontend/a.lua
++++ b/frontend/a.lua
+@@ -1,10 +1,10 @@
+EOF
+mode_run() {
+    local mode="$1" baseline="$2" expected="$3" expression="$4" code=0 extra=()
+    [[ "${mode}" != combined ]] || extra=(--integration "${work}/integration.stats.out")
+    (cd "${kodir}" && ./luajit -e "package.path='spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua;'..package.path" \
+        "${tool}" --mode "${mode}" --config "${work}/config.lua" --src "${repo}" \
+        --unit "${work}/unit80.stats.out" "${extra[@]}" --diff "${work}/changed.diff" \
+        --baseline-overall "${baseline}" --enforce diff,ratchet --json "${work}/mode.json" >/dev/null) || code=$?
+    check "$5: exit" "${code}" "${expected}"
+    check "$5: metrics" "$(jq -e "${expression}" "${work}/mode.json")" true
+}
+mode_run unit 40 0 '.overall == null and .diff_combined == null and .owned == null and .owned_unit != null and .overall_unit.percent == 40 and .diff_unit.percent == 80' \
+    'unit mode enforces 80%, measures only units, and leaves combined unmeasured'
+mode_run combined 40 1 '([.gates[] | select(.name == "Diff coverage, unit + integration" and .enforced and (.ok | not))] | length) == 1' \
+    'release still rejects combined changed-line coverage below 90%'
+mode_run unit 50 1 '([.gates[] | select(.id == "ratchet" and .enforced and (.ok | not))] | length) == 1' \
+    'daily unit overall ratchet rejects a regression'
+{
+    echo "{\"commit\":\"${A}\",\"overall\":49.95,\"unit\":30}"
+    echo "{\"commit\":\"${B}\",\"mode\":\"unit\",\"overall\":null,\"unit\":40}"
+} >"${work}/split-history.jsonl"
+check 'combined lookup skips newer unmeasured unit-only main records' \
+    "$(cd "${h}" && "${baseline_tool}" lookup "${B}" "${work}/split-history.jsonl" combined)" "${A} 49.95 ancestor"
+check 'unit lookup uses the exact daily unit record, not the combined ancestor' \
+    "$(cd "${h}" && "${baseline_tool}" lookup "${B}" "${work}/split-history.jsonl" unit)" "${B} 40 exact"
+publisher="$(dirname "${tool}")/coverage_publish.sh"
+jq --arg c "${A}" '. + {commit:$c,date:"2026-10-28"}' "${work}/mode.json" >"${work}/unit-result.json"
+"${publisher}" --merge-record "${work}/unit-result.json" "${work}/split-history.jsonl" >"${work}/merged-record.json"
+check 'unit-only rerun preserves an existing real combined measurement' \
+    "$(jq -e '.overall == 49.95 and .unit == 40 and .mode == "combined"' "${work}/merged-record.json")" true
+: >"${work}/empty-history.jsonl"
+"${publisher}" --merge-record "${work}/unit-result.json" "${work}/empty-history.jsonl" >"${work}/new-record.json"
+check 'new daily history never substitutes unit coverage for combined' \
+    "$(jq -e '.overall == null and .unit == 40 and .mode == "unit" and .diff_combined == null' "${work}/new-record.json")" true
+
 if [[ ${failures} -gt 0 ]]; then
     echo "coverage_test.sh: ${failures} failure(s)" 1>&2
     exit 1

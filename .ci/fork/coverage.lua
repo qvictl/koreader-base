@@ -30,13 +30,14 @@ Exit code: 0, or 1 if an enforced gate fails.
 
 local LineScanner = require("luacov.linescanner")
 
-local args = { unit = {}, integration = {}, enforce = {} }
+local args = { unit = {}, integration = {}, enforce = {}, mode = "combined" }
 do
     local i = 1
     local function nxt() i = i + 1; return arg[i] end
     while i <= #arg do
         local a = arg[i]
-        if a == "--config" then args.config = nxt()
+        if a == "--mode" then args.mode = nxt()
+        elseif a == "--config" then args.config = nxt()
         elseif a == "--src" then args.src = nxt()
         elseif a == "--diff" then args.diff = nxt()
         elseif a == "--fork-diff" then args.fork_diff = nxt()
@@ -57,6 +58,9 @@ do
     end
     assert(args.config and args.src, "--config and --src are required")
 end
+assert(args.mode == "unit" or args.mode == "combined", "invalid coverage mode")
+assert(args.mode ~= "unit" or #args.integration == 0, "unit mode cannot consume integration stats")
+local unit_only = args.mode == "unit"
 local config = dofile(args.config)
 local today = args.today or os.date("!%Y-%m-%d")
 
@@ -393,14 +397,14 @@ end
 local cfg_gates = config.gates
 if diff.combined.total == 0 then
     gate("diff", "Diff coverage, unit tests", true, "no changed executable line", "≥ " .. cfg_gates.diff_unit_min .. "%")
-    gate("diff", "Diff coverage, unit + integration", true, "no changed executable line", "≥ " .. cfg_gates.diff_combined_min .. "%")
+    if not unit_only then gate("diff", "Diff coverage, unit + integration", true, "no changed executable line", "≥ " .. cfg_gates.diff_combined_min .. "%") end
 else
     gate("diff", "Diff coverage, unit tests", diff.unit.percent >= cfg_gates.diff_unit_min,
         string.format("%s (%d / %d)", fmtPct(diff.unit.covered, diff.unit.total), diff.unit.covered, diff.unit.total),
         "≥ " .. cfg_gates.diff_unit_min .. "%")
-    gate("diff", "Diff coverage, unit + integration", diff.combined.percent >= cfg_gates.diff_combined_min,
+    if not unit_only then gate("diff", "Diff coverage, unit + integration", diff.combined.percent >= cfg_gates.diff_combined_min,
         string.format("%s (%d / %d)", fmtPct(diff.combined.covered, diff.combined.total), diff.combined.covered, diff.combined.total),
-        "≥ " .. cfg_gates.diff_combined_min .. "%")
+        "≥ " .. cfg_gates.diff_combined_min .. "%") end
 end
 if args.baseline_overall then
     gate("ratchet", "Overall coverage (ratchet)", overall.percent >= args.baseline_overall - cfg_gates.ratchet_tolerance_pp,
@@ -411,7 +415,7 @@ else
     gate("ratchet", "Overall coverage (ratchet)", true, string.format("%.2f%%", overall.percent),
         args.baseline_label or "no baseline for main yet")
 end
-gate("owned", "Fork-owned modules", owned.ok,
+gate("owned", unit_only and "Fork-owned modules, unit tests" or "Fork-owned modules", owned.ok,
     string.format("%s overall, lowest %s", fmtPct(owned.covered, owned.total),
         (function()
             local low
@@ -469,9 +473,9 @@ for _, g in ipairs(gates) do
         g.ok and "✅" or (g.enforced and "❌" or "⚠️ (not enforced)")))
 end
 w()
-local otxt = string.format("**Overall** (%s, %d files): **%.2f%%** of %d executable lines",
+local otxt = string.format((unit_only and "**Overall, unit tests only** (%s, %d files):" or "**Overall, unit + integration** (%s, %d files):") .. " **%.2f%%** of %d executable lines",
     table.concat(config.overall.paths, ", "), overall.files, overall.percent, overall.total)
-if base and base.percent then
+if not unit_only and base and base.percent then
     otxt = otxt .. string.format("; day-one baseline %.2f%% (%s)", base.percent, base.date)
     if overall_target then
         otxt = otxt .. string.format("; target %.2f%% since %s", base.percent + overall_target, overall_target_from)
@@ -513,7 +517,7 @@ if #diff.files > 0 then
     w()
     w("<details><summary>Changed lines (" .. #diff.files .. " file(s))</summary>")
     w()
-    w("| File | Unit | Unit + integration | Not run by any test |")
+    w(unit_only and "| File | Unit | Unit | Not run by unit tests |" or "| File | Unit | Unit + integration | Not run by any test |")
     w("|---|---:|---:|---|")
     for _, f in ipairs(diff.files) do
         w(string.format("| `%s` | %s | %s | %s |", f.path, fmtPct(f.unit_covered, f.total),
@@ -540,13 +544,14 @@ if args.json then
     local parts = {}
     local function add(k, v) table.insert(parts, string.format("%q: %s", k, v)) end
     add("date", string.format("%q", today))
-    add("overall", string.format('{"covered": %d, "total": %d, "percent": %.3f, "files": %d}',
+    add("mode", string.format("%q", args.mode))
+    add("overall", unit_only and "null" or string.format('{"covered": %d, "total": %d, "percent": %.3f, "files": %d}',
         overall.covered, overall.total, overall.percent, overall.files))
     add("overall_unit", string.format('{"covered": %d, "total": %d, "percent": %.3f, "min": %s}',
         overall_unit.covered, overall_unit.total, overall_unit.percent,
         overall_unit.min and string.format("%.3f", overall_unit.min) or "null"))
     add("diff_unit", string.format('{"covered": %d, "total": %d, "percent": %.3f}', diff.unit.covered, diff.unit.total, diff.unit.percent))
-    add("diff_combined", string.format('{"covered": %d, "total": %d, "percent": %.3f}',
+    add("diff_combined", unit_only and "null" or string.format('{"covered": %d, "total": %d, "percent": %.3f}',
         diff.combined.covered, diff.combined.total, diff.combined.percent))
     local mods = {}
     for _, e in ipairs(owned.modules) do
@@ -556,8 +561,9 @@ if args.json then
     add("ratchet", string.format('{"baseline": %s, "label": %s}',
         args.baseline_overall and string.format("%.3f", args.baseline_overall) or "null",
         args.baseline_label and string.format("%q", args.baseline_label) or "null"))
-    add("owned", string.format('{"covered": %d, "total": %d, "percent": %.3f, "min": %s, "ok": %s, "modules": {%s}}',
+    add(unit_only and "owned_unit" or "owned", string.format('{"covered": %d, "total": %d, "percent": %.3f, "min": %s, "ok": %s, "modules": {%s}}',
         owned.covered, owned.total, owned.percent, owned.min or "null", tostring(owned.ok), table.concat(mods, ", ")))
+    if unit_only then add("owned", "null") end
     local gs = {}
     for _, g in ipairs(gates) do
         table.insert(gs, string.format('{"id": %q, "name": %q, "ok": %s, "enforced": %s}', g.id, g.name, tostring(g.ok), tostring(g.enforced)))

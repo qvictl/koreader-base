@@ -2,10 +2,10 @@
 -- Dated targets tighten automatically: edit only to change the policy.
 return {
     gates = {
-        -- Blocking on every PR to main.
+        -- Unit gates run on PRs; combined and owned gates run on product releases.
         diff_unit_min = 80,         -- % of the changed executable ffi/*.lua lines run by the unit tests
         diff_combined_min = 90,     -- % run by the unit tests + qvictl/koreader's emulator integration tests
-        ratchet_tolerance_pp = 0.1, -- overall coverage may not drop below main's (at the PR's base commit) by more than this
+        ratchet_tolerance_pp = 0.1, -- selected metric may not regress beyond this tolerance
     },
     diff_include = { "^ffi/" },
     owned_include = { "^ffi/" },
