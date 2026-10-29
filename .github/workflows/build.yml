@@ -107,6 +107,22 @@ jobs:
           filter: tree:0
           show-progress: false
 
+      - name: Select affected unit suites
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          args=()
+          if [[ "${EVENT_NAME}" == pull_request ]]; then
+            base="$(.ci/fork/coverage_baseline.sh base pull_request)"
+            args+=(--base "${base}")
+          elif [[ -n "${PUSH_BEFORE}" && ! "${PUSH_BEFORE}" =~ ^0+$ ]]; then
+            args+=(--base "${PUSH_BEFORE}")
+          fi
+          # New branch/tag pushes have no previous commit: retain full suites.
+          python3 .ci/fork/select_tests.py "${args[@]}" --out unit-selection.json
+          cat unit-selection.json >>"${GITHUB_STEP_SUMMARY}"
+
       - name: Fetch
         run: make fetchthirdparty
 
@@ -223,6 +239,6 @@ jobs:
           key: ${{ steps.build-restore.outputs.cache-primary-key }}
 
       - name: Test
-        run: ./utils/fake_tty.py make --assume-old=all test
+        run: ./utils/fake_tty.py make --assume-old=all test T="--selection ${PWD}/unit-selection.json"
 
 # vim: foldmethod=marker foldlevel=0

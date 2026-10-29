@@ -234,7 +234,7 @@ if [[ -n "${selection}" ]]; then
         echo 'selection requires the complete base suite, without other test names' >&2
         exit 2
     }
-    source_root="$(dirname "$(dirname "$(readlink -f "$0")")")"
+    source_root="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve().parent.parent)' "$0")"
     backend=busted
     [[ "${use_meson}" -eq 0 ]] || backend=meson
     selected="$(python3 "${source_root}/.ci/fork/select_tests.py" --repo "${source_root}" --consume "${selection}" --backend "${backend}")"
