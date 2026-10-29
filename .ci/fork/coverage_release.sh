@@ -19,6 +19,10 @@ result="${PWD}/coverage-result.json"
     exit 2
 }
 head="$(git -C "${src}" rev-parse HEAD)"
+[[ "$(git -C "${src}" rev-parse --is-shallow-repository)" == false ]] || {
+    echo 'base source is a shallow clone; full release history is required' >&2
+    exit 2
+}
 [[ "${head}" == "${EXPECTED_BASE_SHA}" ]] || {
     echo 'base source SHA differs from product' >&2
     exit 2

@@ -48,11 +48,11 @@ for kind in base-unit-coverage integration-coverage; do
 done
 
 run() {
-    local expected="$1" claimed="${2:-${head}}" code=0
+    local expected="$1" claimed="${2:-${head}}" source_dir="${3:-${repo}}" code=0
     (
         cd "${work}/output"
         EXPECTED_BASE_SHA="${claimed}" GITHUB_OUTPUT="${work}/outputs" GITHUB_STEP_SUMMARY="${work}/summary" \
-            "${tools}/coverage_release.sh" "${repo}" "${work}/artifacts" "${kodir}"
+            "${tools}/coverage_release.sh" "${source_dir}" "${work}/artifacts" "${kodir}"
     ) >"${work}/log" 2>&1 || code=$?
     if [[ "${code}" != "${expected}" ]]; then
         cat "${work}/log" >&2
@@ -63,6 +63,10 @@ run() {
 
 run 2 "${daily}"
 echo 'PASS: source HEAD differs from expected product SHA rejected'
+
+git clone --quiet --depth 1 "file://${repo}" "${work}/shallow"
+run 2 "${head}" "${work}/shallow"
+echo 'PASS: actual shallow source clone is rejected before ancestor coverage selection'
 
 run 1
 jq -e --arg a "${first}" --arg h "${head}" \
