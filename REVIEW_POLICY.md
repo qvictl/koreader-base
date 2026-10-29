@@ -29,8 +29,8 @@
 网关（github-actions[bot]）在下面 **全部** 条件对 PR 的最新提交（head SHA）成立时批准，并开启自动合并
 （merge commit，与本仓库历史一致）：
 
-1. **必需检查全部成功**：`main` 分支保护要求的检查（网关运行时从分支保护读取；撰写本文时为 `Lint`、`Build and unit tests`、`Tests policy`、`Integration tests`、`Coverage`；以分支保护为准，
-   包括测试策略和覆盖率门禁）都成功（`success` / `neutral` / `skipped`）。排队或重跑中的检查算未完成。
+1. **必需检查全部成功**：`main` 分支保护要求的检查（网关运行时从分支保护读取；撰写本文时为 `Lint`、`Build and unit tests`、`Tests policy`、`Coverage`；以分支保护为准，
+   集成测试仅在 KOReader 产品发布时运行并阻断发布；包括测试策略和单测覆盖率门禁）都成功（`success` / `neutral` / `skipped`）。排队或重跑中的检查算未完成。
 2. **AI 审查已完成且没有 Request changes**：CodeRabbit（`coderabbitai[bot]`）审查过 head SHA——提交了 `commit_id` 等于 head 的审查，或者（CodeRabbit 没有意见时不发 review）`coderabbitai` 应用在
    该提交上最新的 `CodeRabbit` 检查已完成、结论为 success 且为 “Review completed”；并且它最新的结论性审查
    （Approve / Request changes）不是 **Request changes**。（Gemini Code Assist 已按所有者决定停用。）

@@ -5,13 +5,12 @@
 #
 # ARTIFACTS_DIR holds the downloaded artifacts: a tarball with luajit & luacov
 # (`koreader-emulator-x86_64.tar.xz`, or `base-luajit.tar.xz` for koreader-base), and the
-# luacov stats: `*.stats.out` files under `unit-coverage*/` (unit tests) and
-# `integration-coverage*/` (emulator integration tests).
+# luacov stats: `*.stats.out` files under `unit-coverage*/` (unit tests only).
+# Product-release combined coverage uses coverage_release.sh.
 #
 # Environment: EVENT_NAME, PR_NUMBER, PR_BASE, PUSH_BEFORE, GH_TOKEN, GITHUB_REPOSITORY.
-# Pull requests: all gates are enforced (diff, ratchet, owned modules, dated unit-test
-# coverage target); upstream sync PRs
-# (bringing upstream commits): only the owned modules gate. Pushes: report only.
+# Pull requests enforce unit diff, unit overall ratchet and dated unit targets.
+# Upstream sync PRs enforce only dated unit targets. Pushes report actual unit data.
 # The ratchet compares with the coverage recorded for the main commit the change is based on
 # (or its nearest recorded ancestor), not with main's latest: see coverage_baseline.sh.
 # Outputs (GITHUB_OUTPUT): ok=true|false; writes coverage-result.json (for the history).
@@ -23,7 +22,12 @@ artifacts="$(cd "$1" && pwd)"
 tmp="${RUNNER_TEMP:-/tmp}"
 src="${PWD}"
 
-enforce=diff,ratchet,owned,unit
+mode="${COVERAGE_MODE:-unit}"
+[[ "${mode}" == unit ]] || {
+    echo "daily coverage requires unit mode" >&2
+    exit 2
+}
+enforce=diff,ratchet,unit
 note=''
 case "${EVENT_NAME}" in
     pull_request)
@@ -60,8 +64,8 @@ if [[ -n "${enforce}" ]] && git rev-parse -q --verify origin/upstream >/dev/null
     all="$(git rev-list --count "${base}..HEAD")"
     own="$(git rev-list --count "${base}..HEAD" --not origin/upstream)"
     if [[ "${own}" != "${all}" ]]; then
-        enforce=owned
-        note="This change brings $((all - own)) upstream commit(s) (upstream sync): only the owned modules gate is enforced."
+        enforce=unit
+        note="This change brings $((all - own)) upstream commit(s) (upstream sync): only the dated unit-test target is enforced."
     fi
 fi
 echo "base: ${base}, ratchet base: ${ratchet_base}, head: $(git rev-parse HEAD), enforce: ${enforce:-none}"
@@ -73,7 +77,7 @@ else
     : >"${tmp}/fork.diff"
 fi
 git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl" 2>/dev/null || : >"${tmp}/coverage-history.jsonl"
-if read -r bsha bpct bkind < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl"); then
+if read -r bsha bpct bkind < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl" unit); then
     if [[ "${bkind}" == exact ]]; then
         label="main@${bsha:0:8} (this change's base)"
     else
@@ -93,6 +97,8 @@ tarball="$(find "${artifacts}" -name 'koreader-emulator-x86_64.tar.xz' -o -name 
 tar -C "${emu}" -xJf "${tarball}" koreader/luajit koreader/spec/rocks 2>/dev/null || tar -C "${emu}" -xJf "${tarball}"
 # Self-test of the gates' tool.
 "${src}/.ci/fork/coverage_test.sh" "${emu}/koreader" || exit 2
+# Synthetic source/provenance tests only; no KOReader build or integration suite.
+"${src}/.ci/fork/coverage_release_test.sh" "${emu}/koreader" || exit 2
 stats=()
 while read -r f; do
     case "${f}" in
@@ -107,7 +113,7 @@ code=0
 (
     cd "${emu}/koreader"
     ./luajit -e "package.path='spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua;'..package.path" \
-        "${src}/.ci/fork/coverage.lua" --config "${src}/.ci/coverage_config.lua" --src "${src}" \
+        "${src}/.ci/fork/coverage.lua" --mode "${mode}" --config "${src}/.ci/coverage_config.lua" --src "${src}" \
         --diff "${tmp}/change.diff" --fork-diff "${tmp}/fork.diff" "${stats[@]}" "${baseline[@]}" \
         --enforce "${enforce:-none}" --note "${note}" --md "${md}" --json "${src}/coverage-result.json"
 ) || code=$?

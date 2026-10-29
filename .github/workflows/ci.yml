@@ -5,13 +5,9 @@
 #   - Lint                 : shellcheck/shfmt, luacheck, cmakelint (.ci/lint_script.sh)
 #   - Build and unit tests : emulator build, FFI cdecls check, bincheck, unit tests (busted,
 #                            with luacov)
-#   - Integration tests    : qvictl/koreader main built with this base, and its emulator
-#                            integration scenarios (with budgets, then with luacov)
-#   - Coverage             : coverage gates (see CONTRIBUTING.md, .ci/coverage_config.lua):
-#                            diff coverage (unit >= 80%, unit + integration >= 90%), overall
-#                            ratchet vs main at the PR's base commit (the merge ref's first
-#                            parent: PRs in flight do not have to merge one by one),
-#                            fork-owned modules' dated targets
+#   - Coverage             : unit diff >=80%, unit overall ratchet vs the PR base,
+#                            and dated unit targets (see CONTRIBUTING.md)
+# Product integration and combined coverage gate KOReader Fork releases only.
 # The "Tests policy" check lives in tests_policy.yml (it must re-run when labels change).
 
 name: CI
@@ -197,71 +193,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  koreader-emulator:
-    # qvictl/koreader (main), built with this base, for its emulator integration tests.
-    name: KOReader emulator
-    uses: qvictl/koreader/.github/workflows/fork_emulator.yml@main
-    with:
-      koreader_repository: qvictl/koreader
-      koreader_ref: main
-      base_ref: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.sha }}
-      unit_tests: false
-
-  integration:
-    name: Emulator integration tests
-    needs: koreader-emulator
-    runs-on: ubuntu-26.04
-    timeout-minutes: 60
-    container:
-      image: koreader/kobase:5.0.0-22.04
-    steps:
-      - name: Checkout qvictl/koreader
-        uses: actions/checkout@v7.0.1
-        with:
-          repository: qvictl/koreader
-          ref: main
-          clean: false
-          fetch-depth: 1
-          show-progress: false
-      - name: Download emulator
-        uses: actions/download-artifact@v8.0.2
-        with:
-          name: koreader-emulator-x86_64
-      - name: Integration tests
-        run: |
-          mkdir -p emu
-          tar -C emu -xJf koreader-emulator-x86_64.tar.xz
-          ./tools/run_integration_tests.sh --kodir emu/koreader --output it-results
-      - name: Integration tests (coverage)
-        if: ${{ !cancelled() }}
-        run: ./tools/run_integration_tests.sh --coverage --kodir emu/koreader --output it-coverage
-      - name: Summary
-        if: ${{ !cancelled() }}
-        run: cat it-results/summary.md >>"${GITHUB_STEP_SUMMARY}" || true
-      - name: Upload results
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: integration-results
-          path: |
-            it-results/summary.md
-            it-results/junit.xml
-            it-results/timings.json
-            it-results/results/
-            it-results/logs/
-          retention-days: 14
-      - name: Upload coverage
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: integration-coverage
-          path: it-coverage/integration.stats.out
-          if-no-files-found: ignore
-          retention-days: 14
-
   coverage-report:
     name: Coverage report
-    needs: [emulator, integration]
+    needs: emulator
     if: ${{ !cancelled() && needs.emulator.result == 'success' }}
     runs-on: ubuntu-26.04
     permissions:
@@ -280,12 +214,13 @@ jobs:
       - name: Download coverage
         uses: actions/download-artifact@v8.0.2
         with:
-          pattern: '{unit-coverage,integration-coverage}'
-          path: artifacts
+          name: unit-coverage
+          path: artifacts/unit-coverage
       - name: Coverage gates
         id: coverage
         env:
           GH_TOKEN: ${{ github.token }}
+          COVERAGE_MODE: unit
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -324,6 +259,8 @@ jobs:
         with:
           name: coverage-result
       - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ./.ci/fork/coverage_publish.sh coverage-result.json
 
   # }}}
@@ -345,14 +282,6 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - run: '[[ "${{ needs.emulator.result }}" == success ]]'
-
-  integration-gate:
-    name: Integration tests
-    needs: integration
-    if: ${{ always() }}
-    runs-on: ubuntu-26.04
-    steps:
-      - run: '[[ "${{ needs.integration.result }}" == success ]]'
 
   coverage:
     name: Coverage
