@@ -53,8 +53,14 @@ done
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
-git -C "${src}" fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage' 2>/dev/null || true
-git -C "${src}" show origin/coverage:history.jsonl >"${work}/history.jsonl" 2>/dev/null || : >"${work}/history.jsonl"
+if ! git -C "${src}" fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage' 2>/dev/null; then
+    echo 'cannot fetch established base coverage history; refusing to bypass release ratchet' >&2
+    exit 2
+fi
+if ! git -C "${src}" show origin/coverage:history.jsonl >"${work}/history.jsonl" 2>/dev/null; then
+    echo 'base coverage branch has no readable history.jsonl' >&2
+    exit 2
+fi
 baseline=()
 base=''
 if parent="$(git -C "${src}" rev-parse --verify HEAD^ 2>/dev/null)" &&

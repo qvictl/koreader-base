@@ -122,6 +122,14 @@ run 2
 echo 'PASS: tracked source differs from claimed SHA rejected'
 sed -i '$d' "${repo}/ffi/example.lua"
 
+git -C "${repo}" remote set-url origin "${work}/missing-remote"
+run 2
+echo 'PASS: coverage fetch failure cannot masquerade as an unestablished ratchet'
+git -C "${repo}" remote set-url origin "${repo}"
+git -C "${repo}" update-ref refs/heads/coverage "${head}"
+run 2
+echo 'PASS: missing coverage history file cannot bypass the release ratchet'
+
 history "$(jq -cn --arg b "${daily}" '{commit:$b,overall:null,unit:100}')"
 run 1
 jq -e '.ratchet.baseline == null and .ratchet_base == null and .diff_combined.total == 3' "${work}/output/coverage-result.json" >/dev/null
