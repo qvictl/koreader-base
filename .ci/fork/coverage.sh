@@ -9,7 +9,8 @@
 # Product-release combined coverage uses coverage_release.sh.
 #
 # Environment: EVENT_NAME, PR_NUMBER, PUSH_BEFORE, GH_TOKEN, GITHUB_REPOSITORY.
-# PR/push manifests enforce changed-line unit coverage only and cannot become baselines.
+# Own PR/push ranges enforce diff80; existing upstream-sync ranges only report it.
+# Partial measurements cannot become whole baselines.
 # An explicit manual full run also enforces the unit ratchet and dated unit target.
 # Outputs (GITHUB_OUTPUT): ok=true|false; writes coverage-result.json.
 
@@ -24,6 +25,7 @@ manifest="${artifacts}/unit-coverage/unit-selection.json"
 python3 "${src}/.ci/fork/select_tests.py" --consume "${manifest}" >/dev/null
 selection="$(jq -r .mode "${manifest}")"
 base="$(jq -r .base_sha "${manifest}")"
+comparison_base="${base}"
 mode="diff"
 enforce="diff"
 note='Affected unit suites only; overall coverage is measured by the full product-release gate.'
@@ -49,7 +51,33 @@ if [[ "${base}" == null ]]; then
         fi
     fi
 fi
+# Preserve the existing upstream-sync exception, using commit membership rather
+# than labels/branch names. Failed classification retains the ordinary diff80.
+upstream_sync=false
+upstream_commits=null
+upstream_status=not_applicable
+if [[ "${mode}" == diff && "${comparison_base}" != null ]]; then
+    upstream_status=unavailable
+    if git fetch --quiet origin '+refs/heads/upstream:refs/remotes/origin/upstream' 2>/dev/null &&
+        git rev-parse --verify 'refs/remotes/origin/upstream^{commit}' >/dev/null 2>&1 &&
+        all="$(git rev-list --count "${base}..HEAD")" &&
+        own="$(git rev-list --count "${base}..HEAD" --not refs/remotes/origin/upstream)" &&
+        [[ "${all}" =~ ^[0-9]+$ && "${own}" =~ ^[0-9]+$ && "${own}" -le "${all}" ]]; then
+        upstream_status=verified
+        upstream_commits=$((all - own))
+        if [[ "${upstream_commits}" -gt 0 ]]; then
+            upstream_sync=true
+            enforce=none
+            note="This change brings ${upstream_commits} upstream commit(s) (upstream sync): changed-line unit coverage is report-only; full release unit/combined gates remain enforced."
+        else
+            note+=' Classification: own-only (verified; 0 upstream commits); changed-line unit coverage is enforced.'
+        fi
+    else
+        note+=' Upstream ownership unavailable; changed-line unit coverage remains enforced.'
+    fi
+fi
 echo "base: ${base}, head: $(git rev-parse HEAD), mode: ${mode}, selection: ${selection}, enforce: ${enforce}"
+echo "upstream ownership: ${upstream_status}, sync: ${upstream_sync}, commits: ${upstream_commits}"
 git diff -U0 "${base}" HEAD -- '*.lua' >"${tmp}/change.diff"
 # Whole fork-owned/module gates only consume full release data.
 : >"${tmp}/fork.diff"
@@ -64,6 +92,7 @@ tar -C "${emu}" -xJf "${tarball}" koreader/luajit koreader/spec/rocks 2>/dev/nul
 "${src}/.ci/fork/coverage_test.sh" "${emu}/koreader" || exit 2
 # Synthetic source/provenance tests only; no KOReader build or integration suite.
 "${src}/.ci/fork/coverage_release_test.sh" "${emu}/koreader" || exit 2
+"${src}/.ci/fork/coverage_sync_test.sh" "${tarball}" || exit 2
 stats=()
 while IFS= read -r -d '' f; do
     [[ -s "${f}" ]] && stats+=(--unit "${f}")
@@ -95,7 +124,9 @@ if [[ ${code} -gt 1 ]]; then
     exit "${code}"
 fi
 cat "${md}" >>"${GITHUB_STEP_SUMMARY}"
-jq --arg commit "$(git rev-parse HEAD)" --arg event "${EVENT_NAME}" '. + {commit: $commit, event: $event}' \
+jq --arg commit "$(git rev-parse HEAD)" --arg event "${EVENT_NAME}" \
+    --argjson sync "${upstream_sync}" --argjson count "${upstream_commits}" --arg status "${upstream_status}" \
+    '. + {commit: $commit, event: $event, upstream_sync: $sync, upstream_commits: $count, upstream_status: $status}' \
     coverage-result.json >coverage-result.json.tmp && mv coverage-result.json.tmp coverage-result.json
 echo "ok=$([[ ${code} -eq 0 ]] && echo true || echo false)" >>"${GITHUB_OUTPUT}"
 

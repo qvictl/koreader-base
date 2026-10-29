@@ -164,4 +164,4 @@ gh api -X PATCH repos/$R/branches/main/protection/required_pull_request_reviews 
 - **Auto-merge** uses the owner's PAT from environment `review-gate` (main only); a PR that is already mergeable is
   merged directly at the evaluated head SHA.
 
-PR/main CI 运行受影响的完整 unit suite，并保留 diff unit ≥80%；不将 partial coverage 写入整体基线。发版运行全量 unit/integration，独立整体 unit/combined 棘轮、dated 与 module 门槛保持不变。手动无比较范围及本地运行默认全量。
+PR/main CI 运行受影响的完整 unit suite；普通自有范围保留 diff unit ≥80%，既有上游同步范围按新鲜 origin/upstream 的 commit 归属仅报告 diff。识别失败及首次 empty-tree 比较仍保留 diff80，不按标签豁免。不将 partial coverage 写入整体基线。发版运行全量 unit/integration，独立整体 unit/combined 棘轮、dated 与 module 门槛保持不变。手动无比较范围及本地运行默认全量。
