@@ -112,6 +112,13 @@ class SelectionTests(unittest.TestCase):
         result = self.changed("ffi/wrapper.lua", 'return package.loaders[1](module_name)\n')
         self.assertEqual(result["mode"], "full")
 
+    def test_static_module_cache_access_has_an_edge(self):
+        self.write("spec/unit/cache_spec.lua", 'local cached = package.loaded["ffi/leaf"]\n')
+        self.base = self.save()
+        self.assertEqual(self.changed()["tests"], ["spec/unit/cache_spec.lua", "spec/unit/leaf_spec.lua"])
+        for source in ('package.loaded[name]', 'local loaded = package.loaded', 'package.path = path'):
+            self.assertTrue(selection.dependencies(source, {"ffi/leaf.lua"})[1])
+
     def test_deleted_module_keeps_old_consumer(self):
         (self.repo / "ffi/leaf.lua").unlink()
         self.save()

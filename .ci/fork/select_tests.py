@@ -99,10 +99,23 @@ def dependencies(source, available):
         if kind != "name":
             continue
         before = items[index - 1][1] if index else None
-        if name in ("_G", "_ENV", "package", "getfenv", "setfenv"):
+        if name in ("_G", "_ENV", "getfenv", "setfenv"):
             # Computed global loaders/search paths cannot be proven from literal
             # require calls alone (e.g. _G[loader](name), package.loaders).
             opaque = True
+        if name == "package":
+            tail = items[index + 1:index + 6]
+            cached = None
+            if len(tail) >= 4 and [part[1] for part in tail[:3]] == [".", "loaded", "."] and tail[3][0] == "name":
+                cached = tail[3][1]
+            elif len(tail) == 5 and [part[1] for part in tail[:3]] == [".", "loaded", "["] and tail[3][0] == "string" and tail[4][1] == "]":
+                cached = tail[3][1]
+            if cached is None:
+                opaque = True
+            else:
+                # Static cache access names the same dependency as require();
+                # computed keys, aliases and loader/search-path access stay opaque.
+                edges.update({cached.replace(".", "/") + ".lua", "spec/unit/" + cached + ".lua"} & available)
         if name in ("execute", "popen") and before == "." and index >= 2 and items[index - 2][1] in ("os", "io"):
             opaque = True
         if name not in ("require", "loadfile", "dofile", "loadstring", "load"):
