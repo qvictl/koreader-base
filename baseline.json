@@ -1,5 +1,6 @@
 {
-  "date": "2026-10-28",
+  "date": "2026-10-29",
+  "mode": "combined",
   "overall": {
     "covered": 5939,
     "total": 12958,
@@ -9,27 +10,27 @@
   "overall_unit": {
     "covered": 5370,
     "total": 12915,
-    "percent": 41.580,
+    "percent": 41.58,
     "min": null
   },
   "diff_unit": {
-    "covered": 12,
-    "total": 13,
-    "percent": 92.308
+    "covered": 0,
+    "total": 0,
+    "percent": 100
   },
   "diff_combined": {
-    "covered": 12,
-    "total": 13,
-    "percent": 92.308
+    "covered": 0,
+    "total": 0,
+    "percent": 100
   },
   "ratchet": {
-    "baseline": 45.786,
-    "label": "main@287f5fd9 (this change's base)"
+    "baseline": 45.833,
+    "label": "base@e6b61fc0 (latest actual combined measurement)"
   },
   "owned": {
     "covered": 92,
     "total": 92,
-    "percent": 100.000,
+    "percent": 100,
     "min": 80,
     "ok": true,
     "modules": {
@@ -37,7 +38,7 @@
         "scope": "func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD",
         "covered": 92,
         "total": 92,
-        "percent": 100.000
+        "percent": 100
       }
     }
   },
@@ -46,35 +47,38 @@
       "id": "diff",
       "name": "Diff coverage, unit tests",
       "ok": true,
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "diff",
       "name": "Diff coverage, unit + integration",
       "ok": true,
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "ratchet",
       "name": "Overall coverage (ratchet)",
       "ok": true,
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "owned",
       "name": "Fork-owned modules",
       "ok": true,
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "unit",
       "name": "Overall coverage, unit tests",
       "ok": true,
-      "enforced": false
+      "enforced": true
     }
   ],
   "ok": true,
-  "commit": "e6b61fc01f1eeb8fa460de38a10169c6d46b1d32",
-  "event": "push",
-  "updated": "2026-10-28T22:26:59Z"
+  "commit": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
+  "event": "product_release",
+  "diff_base": "e6b61fc01f1eeb8fa460de38a10169c6d46b1d32",
+  "ratchet_base": "e6b61fc01f1eeb8fa460de38a10169c6d46b1d32",
+  "tooling_commit": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
+  "updated": "2026-10-29T10:32:48Z"
 }
