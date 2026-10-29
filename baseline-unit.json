@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-29",
+  "mode": "unit",
+  "overall": null,
+  "overall_unit": {
+    "covered": 5370,
+    "total": 12915,
+    "percent": 41.580,
+    "min": null
+  },
+  "diff_unit": {
+    "covered": 0,
+    "total": 0,
+    "percent": 100.000
+  },
+  "diff_combined": null,
+  "ratchet": {
+    "baseline": 41.580,
+    "label": "main@e6b61fc0 (this change's base)"
+  },
+  "owned_unit": {
+    "covered": 92,
+    "total": 92,
+    "percent": 100.000,
+    "min": 80,
+    "ok": true,
+    "modules": {
+      "ffi/util.lua": {
+        "scope": "func:util.runInSubProcess,util.isSubProcessDone,util.terminateSubProcess,util.readAllFromFD",
+        "covered": 92,
+        "total": 92,
+        "percent": 100.000
+      }
+    }
+  },
+  "owned": null,
+  "gates": [
+    {
+      "id": "diff",
+      "name": "Diff coverage, unit tests",
+      "ok": true,
+      "enforced": false
+    },
+    {
+      "id": "ratchet",
+      "name": "Overall coverage (ratchet)",
+      "ok": true,
+      "enforced": false
+    },
+    {
+      "id": "owned",
+      "name": "Fork-owned modules, unit tests",
+      "ok": true,
+      "enforced": false
+    },
+    {
+      "id": "unit",
+      "name": "Overall coverage, unit tests",
+      "ok": true,
+      "enforced": false
+    }
+  ],
+  "ok": true,
+  "commit": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
+  "event": "push",
+  "updated": "2026-10-29T06:02:03Z"
+}
