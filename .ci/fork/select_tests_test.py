@@ -3,9 +3,11 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 spec = importlib.util.spec_from_file_location("selection", Path(__file__).with_name("select_tests.py"))
@@ -207,6 +209,55 @@ local b = loadfile [=[ffi/wrapper.lua]=]
         process = subprocess.run(["python3", str(Path(__file__).with_name("select_tests.py")), "--repo", str(self.repo), "--base", "bad-ref", "--out", str(output)], capture_output=True)
         self.assertEqual(process.returncode, 2)
         self.assertFalse(output.exists())
+
+    def run_workflow_selection(self, filename, event, before=""):
+        # Execute the actual YAML run block, not a mirror of its event logic.
+        root = Path(__file__).resolve().parents[2]
+        source = (root / ".github/workflows" / filename).read_text()
+        block = source.split("      - name: Select affected unit suites\n", 1)[1].split("\n      - name:", 1)[0]
+        script = textwrap.dedent(block.split("        run: |\n", 1)[1])
+        helpers = self.repo / ".ci/fork"
+        helpers.mkdir(parents=True, exist_ok=True)
+        for name in ("select_tests.py", "coverage_baseline.sh"):
+            target = helpers / name
+            if not target.exists():
+                target.symlink_to(root / ".ci/fork" / name)
+        # The caller already runs this suite; avoid recursion in Linux's selftest step.
+        (helpers / "select_tests_test.py").write_text("# fixture: caller runs the actual selector tests\n")
+        subprocess.run(["bash", "-eo", "pipefail", "-c", script], cwd=self.repo,
+                       env=dict(os.environ, EVENT_NAME=event, PUSH_BEFORE=before,
+                                GITHUB_STEP_SUMMARY=str(self.repo / "summary")),
+                       check=True, capture_output=True)
+        self.assertIn("--selection", source)
+        return json.loads((self.repo / "unit-selection.json").read_text())
+
+    def test_actual_workflow_blocks_use_entire_push_range(self):
+        self.changed()
+        self.changed("README.md", "second commit\n")
+        for workflow in ("ci.yml", "build.yml"):
+            result = self.run_workflow_selection(workflow, "push", self.base)
+            self.assertEqual(result["base_sha"], self.base)
+            self.assertEqual(result["tests"], ["spec/unit/leaf_spec.lua"])
+            self.assertEqual(result["changed_files"], ["README.md", "ffi/leaf.lua"])
+
+    def test_actual_workflow_blocks_use_pr_merge_parent(self):
+        self.git("checkout", "-qb", "pr")
+        self.changed()
+        self.git("checkout", "-qb", "main-advanced", self.base)
+        self.changed("ffi/other.lua", "return {main = true}\n")
+        main_parent = self.git("rev-parse", "HEAD")
+        self.git("merge", "-q", "--no-ff", "pr", "-m", "PR merge")
+        for workflow in ("ci.yml", "build.yml"):
+            result = self.run_workflow_selection(workflow, "pull_request")
+            self.assertEqual(result["base_sha"], main_parent)
+            self.assertEqual(result["changed_files"], ["ffi/leaf.lua"])
+            self.assertEqual(result["tests"], ["spec/unit/leaf_spec.lua"])
+
+    def test_macos_new_branch_push_defaults_full(self):
+        self.changed()
+        result = self.run_workflow_selection("build.yml", "push", "0" * 40)
+        self.assertEqual(result["mode"], "full")
+        self.assertIsNone(result["base_sha"])
 
 
 if __name__ == "__main__":
