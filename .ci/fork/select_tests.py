@@ -99,6 +99,10 @@ def dependencies(source, available):
         if kind != "name":
             continue
         before = items[index - 1][1] if index else None
+        if name in ("_G", "_ENV", "package", "getfenv", "setfenv"):
+            # Computed global loaders/search paths cannot be proven from literal
+            # require calls alone (e.g. _G[loader](name), package.loaders).
+            opaque = True
         if name in ("execute", "popen") and before == "." and index >= 2 and items[index - 2][1] in ("os", "io"):
             opaque = True
         if name not in ("require", "loadfile", "dofile", "loadstring", "load"):

@@ -105,6 +105,13 @@ class SelectionTests(unittest.TestCase):
         self.save()
         self.assertIn("spec/unit/leaf_spec.lua", selection.select(self.repo, self.base)["tests"])
 
+    def test_computed_global_loaders_are_opaque(self):
+        self.write("spec/unit/opaque_spec.lua", '_G["require"](module_name)\n')
+        self.base = self.save()
+        self.assertIn("spec/unit/opaque_spec.lua", self.changed()["tests"])
+        result = self.changed("ffi/wrapper.lua", 'return package.loaders[1](module_name)\n')
+        self.assertEqual(result["mode"], "full")
+
     def test_deleted_module_keeps_old_consumer(self):
         (self.repo / "ffi/leaf.lua").unlink()
         self.save()
