@@ -59,14 +59,19 @@ baseline=()
 base=''
 if parent="$(git -C "${src}" rev-parse --verify HEAD^ 2>/dev/null)" &&
     read -r base percent kind < <(cd "${src}" && "${tools}/coverage_baseline.sh" lookup "${parent}" "${work}/history.jsonl" combined); then
-    baseline=(--baseline-overall "${percent}" --baseline-label "base@${base:0:8} (previous actual combined measurement)")
+    echo "combined diff base: ${base} (previous actual measurement)"
 else
-    baseline=(--baseline-label 'no previous actual combined coverage; ratchet not established')
     if git -C "${src}" rev-parse --verify origin/upstream >/dev/null 2>&1; then
         base="$(git -C "${src}" merge-base HEAD origin/upstream)"
     else
         base="$(git -C "${src}" hash-object -t tree /dev/null)"
     fi
+fi
+ratchet_base=''
+if read -r ratchet_base percent kind < <(cd "${src}" && "${tools}/coverage_baseline.sh" lookup "${head}" "${work}/history.jsonl" combined); then
+    baseline=(--baseline-overall "${percent}" --baseline-label "base@${ratchet_base:0:8} (latest actual combined measurement)")
+else
+    baseline=(--baseline-label 'no actual combined coverage; ratchet not established')
 fi
 git -C "${src}" diff -U0 "${base}" HEAD -- '*.lua' >"${work}/change.diff"
 if git -C "${src}" rev-parse --verify origin/upstream >/dev/null 2>&1; then
@@ -88,14 +93,16 @@ code=0
         --md "${work}/coverage.md" --json "${result}"
 ) || code=$?
 [[ "${code}" -le 1 ]] || exit "${code}"
-jq --arg commit "${head}" --arg base "${base}" --arg tooling "$(git -C "${tools}" rev-parse HEAD)" \
-    '. + {commit: $commit, event: "product_release", diff_base: $base, tooling_commit: $tooling}' \
+jq --arg commit "${head}" --arg base "${base}" --arg ratchet "${ratchet_base}" --arg tooling "$(git -C "${tools}" rev-parse HEAD)" \
+    '. + {commit: $commit, event: "product_release", diff_base: $base, ratchet_base: (if $ratchet == "" then null else $ratchet end), tooling_commit: $tooling}' \
     "${result}" >"${result}.tmp"
 mv "${result}.tmp" "${result}"
 cat "${work}/coverage.md" >>"${GITHUB_STEP_SUMMARY}"
 {
     echo "base_sha=${head}"
     echo "baseline_sha=${base}"
+    echo "diff_base_sha=${base}"
+    echo "ratchet_base_sha=${ratchet_base}"
     echo "ok=$([[ "${code}" -eq 0 ]] && echo true || echo false)"
 } >>"${GITHUB_OUTPUT}"
 exit "${code}"

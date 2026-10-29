@@ -83,6 +83,32 @@ for kind in base-unit-coverage integration-coverage; do
     printf '3:ffi/example.lua\n1 1 0 \n' >"${work}/artifacts/${kind}/sample.stats.out"
 done
 
+# An unchanged base gitlink can be published again: its own real combined record
+# must remain the global ratchet, while diff coverage still spans the earlier batch.
+history "$(jq -cn --arg a "${first}" --arg b "${daily}" --arg h "${head}" '{commit:$a,overall:50,unit:50},{commit:$b,overall:null,unit:100},{commit:$h,overall:100,unit:100}')"
+for kind in base-unit-coverage integration-coverage; do
+    printf '3:ffi/example.lua\n0 1 1 \n' >"${work}/artifacts/${kind}/sample.stats.out"
+done
+run 1
+jq -e --arg a "${first}" --arg h "${head}" \
+    '.ok == false and .diff_base == $a and .ratchet_base == $h and .ratchet.baseline == 100 and .diff_combined.percent == 100 and ([.gates[] | select(.enforced and (.ok | not)) | .id] == ["ratchet"])' \
+    "${work}/output/coverage-result.json" >/dev/null
+echo 'PASS: repeated exact base SHA cannot evade its own higher combined ratchet'
+for kind in base-unit-coverage integration-coverage; do
+    printf '3:ffi/example.lua\n1 1 1 \n' >"${work}/artifacts/${kind}/sample.stats.out"
+done
+run 0
+jq -e --arg a "${first}" --arg h "${head}" \
+    '.ok == true and .diff_base == $a and .ratchet_base == $h and .ratchet.baseline == 100 and .overall.percent == 100' \
+    "${work}/output/coverage-result.json" >/dev/null
+grep -qx "diff_base_sha=${first}" "${work}/outputs"
+grep -qx "ratchet_base_sha=${head}" "${work}/outputs"
+echo 'PASS: repeated exact base SHA passes at its own prior combined level'
+history "$(jq -cn --arg a "${first}" --arg b "${daily}" '{commit:$a,overall:100,unit:100},{commit:$b,overall:null,unit:100}')"
+for kind in base-unit-coverage integration-coverage; do
+    printf '3:ffi/example.lua\n1 1 0 \n' >"${work}/artifacts/${kind}/sample.stats.out"
+done
+
 printf '%s\n' "${daily}" >"${work}/artifacts/integration-coverage/base-sha.txt"
 run 2
 echo 'PASS: mismatched product integration SHA rejected'
@@ -98,6 +124,6 @@ sed -i '$d' "${repo}/ffi/example.lua"
 
 history "$(jq -cn --arg b "${daily}" '{commit:$b,overall:null,unit:100}')"
 run 1
-jq -e '.ratchet.baseline == null and .diff_combined.total == 3' "${work}/output/coverage-result.json" >/dev/null
+jq -e '.ratchet.baseline == null and .ratchet_base == null and .diff_combined.total == 3' "${work}/output/coverage-result.json" >/dev/null
 echo 'PASS: first combined measurement has no invented ratchet and checks complete source without upstream'
 echo 'coverage_release_test.sh: all passed'
