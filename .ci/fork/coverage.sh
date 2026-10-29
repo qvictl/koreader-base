@@ -69,6 +69,8 @@ if [[ "${mode}" == diff && "${comparison_base}" != null ]]; then
             upstream_sync=true
             enforce=none
             note="This change brings ${upstream_commits} upstream commit(s) (upstream sync): changed-line unit coverage is report-only; full release unit/combined gates remain enforced."
+        else
+            note+=' Classification: own-only (verified; 0 upstream commits); changed-line unit coverage is enforced.'
         fi
     else
         note+=' Upstream ownership unavailable; changed-line unit coverage remains enforced.'

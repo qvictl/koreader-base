@@ -87,12 +87,14 @@ enforced() {
 run "${own}" "${base}" false
 enforced
 jq -e '.upstream_commits == 0 and .upstream_status == "verified" and .diff_unit.percent == 0' "${repo}/coverage-result.json" >/dev/null
+grep -Fq 'Classification: own-only (verified; 0 upstream commits)' "${work}/summary"
 if grep -q 'upstream sync' "${work}/summary"; then exit 1; fi
 echo 'PASS: own-only range retains diff80 despite a sync-shaped branch name'
 
 run "${based}" "${upstream}" false
 enforced
 jq -e '.upstream_commits == 0 and .upstream_status == "verified"' "${repo}/coverage-result.json" >/dev/null
+grep -Fq 'Classification: own-only (verified; 0 upstream commits)' "${work}/summary"
 echo 'PASS: upstream history outside the comparison range does not waive own changes'
 
 for comparison in "${base}" "${own}"; do
