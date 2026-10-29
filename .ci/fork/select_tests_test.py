@@ -74,6 +74,21 @@ class SelectionTests(unittest.TestCase):
         self.git("checkout", "-q", "--detach", head)
         self.assertEqual(selection.select(self.repo, parallel)["base_sha"], self.base)
 
+    def test_pr_merge_uses_current_main_parent_and_entire_pr(self):
+        self.git("checkout", "-qb", "pr")
+        self.changed()
+        self.changed("README.md", "later PR commit\n")
+        self.git("checkout", "-qb", "advanced-main", self.base)
+        self.changed("ffi/other.lua", "return {main = true}\n")
+        main_parent = self.git("rev-parse", "HEAD")
+        self.git("merge", "-q", "--no-ff", "pr", "-m", "synthetic PR merge")
+        helper = Path(__file__).with_name("coverage_baseline.sh").resolve()
+        actual_base = subprocess.check_output([str(helper), "base", "pull_request"], cwd=self.repo, text=True).strip()
+        result = selection.select(self.repo, actual_base)
+        self.assertEqual(result["base_sha"], main_parent)
+        self.assertEqual(result["changed_files"], ["README.md", "ffi/leaf.lua"])
+        self.assertEqual(result["tests"], ["spec/unit/leaf_spec.lua"])
+
     def test_direct_spec_only(self):
         self.assertEqual(self.changed("spec/unit/other_spec.lua", "assert(true)\n")["tests"], ["spec/unit/other_spec.lua"])
 
@@ -86,6 +101,7 @@ class SelectionTests(unittest.TestCase):
     def test_shared_native_and_unknown_full(self):
         for path in ("ffi/loadlib.lua", "ffi/util.lua", "ffi/posix.lua", "ffi/example_h.lua", "blitbuffer.c", "Makefile", "test-runner/runtests", "spec/unit/fixture.lua"):
             with self.subTest(path=path):
+                self.git("reset", "-q", "--hard", self.base)
                 self.assertEqual(self.changed(path)["mode"], "full")
 
     def test_unknown_production_consumer_full(self):

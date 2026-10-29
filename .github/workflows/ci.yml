@@ -84,7 +84,6 @@ jobs:
       - name: Select affected unit suites
         env:
           EVENT_NAME: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_NUMBER: ${{ inputs.pr }}
           PUSH_BEFORE: ${{ github.event.before }}
           GH_TOKEN: ${{ github.token }}
@@ -92,7 +91,11 @@ jobs:
           python3 .ci/fork/select_tests_test.py
           args=()
           case "${EVENT_NAME}" in
-            pull_request) args+=(--base "${PR_BASE}") ;;
+            pull_request)
+              # Use the main parent actually tested by the PR merge ref.
+              base="$(.ci/fork/coverage_baseline.sh base pull_request)"
+              args+=(--base "${base}")
+              ;;
             push) args+=(--base "${PUSH_BEFORE}") ;;
             workflow_dispatch)
               if [[ -n "${PR_NUMBER}" ]]; then
