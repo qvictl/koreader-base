@@ -234,6 +234,15 @@ check 'unit lookup uses the exact daily unit record, not the combined ancestor' 
     "$(cd "${h}" && "${baseline_tool}" lookup "${B}" "${work}/split-history.jsonl" unit)" "${B} 40 exact"
 echo 'not json' >>"${work}/split-history.jsonl"
 publisher="$(dirname "${tool}")/coverage_publish.sh"
+# Exercise the actual target assignment without invoking a network publication.
+# GitHub default GITHUB_* variables cannot be overridden by workflow env.
+repository_assignment="$(sed -n '/^repo=/p' "${publisher}")"
+check 'explicit base publish target overrides the immutable KO workflow default' \
+    "$(GITHUB_REPOSITORY=qvictl/koreader COVERAGE_PUBLISH_REPOSITORY=qvictl/koreader-base \
+        bash -c "${repository_assignment}"$'\nprintf "%s" "${repo}"')" qvictl/koreader-base
+check 'ordinary publication retains its workflow repository without an override' \
+    "$(GITHUB_REPOSITORY=qvictl/koreader COVERAGE_PUBLISH_REPOSITORY='' \
+        bash -c "${repository_assignment}"$'\nprintf "%s" "${repo}"')" qvictl/koreader
 jq --arg c "${A}" '. + {commit:$c,date:"2026-10-28"}' "${work}/mode.json" >"${work}/unit-result.json"
 "${publisher}" --merge-record "${work}/unit-result.json" "${work}/split-history.jsonl" >"${work}/merged-record.json"
 check 'unit-only rerun preserves an existing real combined measurement' \

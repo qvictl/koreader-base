@@ -41,7 +41,7 @@ if [[ "${1:-}" == --merge-record ]]; then
     exit
 fi
 result="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
-repo="${GITHUB_REPOSITORY:?}"
+repo="${COVERAGE_PUBLISH_REPOSITORY:-${GITHUB_REPOSITORY:?}}"
 commit="$(jq -r '.commit' "${result}")"
 work="$(mktemp -d)"
 git config --global user.name 'github-actions[bot]'
