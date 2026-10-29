@@ -23,9 +23,13 @@
     "total": 0,
     "percent": 100
   },
+  "unit_ratchet": {
+    "baseline": 41.58,
+    "label": "base@7a32fc9e (latest actual full-unit measurement)"
+  },
   "ratchet": {
     "baseline": 45.833,
-    "label": "base@e6b61fc0 (latest actual combined measurement)"
+    "label": "base@7a32fc9e (latest actual combined measurement)"
   },
   "owned": {
     "covered": 92,
@@ -68,6 +72,12 @@
       "enforced": true
     },
     {
+      "id": "unit_ratchet",
+      "name": "Overall unit coverage (ratchet)",
+      "ok": true,
+      "enforced": true
+    },
+    {
       "id": "unit",
       "name": "Overall coverage, unit tests",
       "ok": true,
@@ -75,10 +85,11 @@
     }
   ],
   "ok": true,
-  "commit": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
+  "commit": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
   "event": "product_release",
-  "diff_base": "e6b61fc01f1eeb8fa460de38a10169c6d46b1d32",
-  "ratchet_base": "e6b61fc01f1eeb8fa460de38a10169c6d46b1d32",
-  "tooling_commit": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
-  "updated": "2026-10-29T10:32:48Z"
+  "diff_base": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
+  "ratchet_base": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
+  "unit_ratchet_base": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
+  "tooling_commit": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
+  "updated": "2026-10-29T17:19:32Z"
 }
