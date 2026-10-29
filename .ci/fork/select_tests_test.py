@@ -119,6 +119,20 @@ class SelectionTests(unittest.TestCase):
         for source in ('package.loaded[name]', 'local loaded = package.loaded', 'package.path = path'):
             self.assertTrue(selection.dependencies(source, {"ffi/leaf.lua"})[1])
 
+    def test_unresolved_lua_library_is_an_opaque_consumer(self):
+        self.write("spec/unit/vendor_spec.lua", 'local vendor = require "ExternalLibrary"\n')
+        self.base = self.save()
+        self.assertIn("spec/unit/vendor_spec.lua", self.changed()["tests"])
+        self.assertEqual(self.changed("ffi/wrapper.lua", 'return require "ExternalLibrary"\n')["mode"], "full")
+        for name in ("ffi", "bit", "string.buffer", "libs/libkoreader-cre"):
+            self.assertFalse(selection.dependencies('require "' + name + '"', set())[1])
+
+    def test_out_of_graph_repository_wrapper_is_opaque(self):
+        self.write("helper.lua", 'return require "ffi/leaf"\n')
+        self.write("spec/unit/helper_spec.lua", 'local helper = require "helper"\n')
+        self.base = self.save()
+        self.assertIn("spec/unit/helper_spec.lua", self.changed()["tests"])
+
     def test_deleted_module_keeps_old_consumer(self):
         (self.repo / "ffi/leaf.lua").unlink()
         self.save()

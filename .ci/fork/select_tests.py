@@ -14,6 +14,7 @@ class SelectionError(ValueError):
 
 
 SHARED = {"ffi/loadlib.lua", "ffi/posix.lua", "ffi/__gc.lua", "ffi/util.lua", "ffi/blitbuffer.lua"}
+BUILTIN = {"ffi", "bit", "string.buffer"}
 LONG = re.compile(r"\[(=*)\[")
 
 
@@ -146,7 +147,7 @@ def dependencies(source, available):
             candidates = [value.removeprefix("./").replace("spec/base/", "spec/", 1)]
         found = set(candidates) & available
         edges.update(found)
-        if not found and (name != "require" or value.startswith(("ffi/", "ffi."))):
+        if not found and (name != "require" or (value not in BUILTIN and not value.startswith("libs/"))):
             opaque = True
     return edges, opaque
 
@@ -199,6 +200,9 @@ def select(repo, base=None, head="HEAD"):
     for sha, tree in trees.items():
         for path in sorted(nodes & tree):
             edges, uncertain = dependencies(git(repo, "show", sha + ":" + path), available)
+            # A repository module outside the analyzed runtime/test directories
+            # may itself load any FFI module; never silently drop that hop.
+            uncertain = uncertain or bool(edges - nodes)
             for dependency in edges:
                 reverse[dependency].add(path)
             if uncertain:
