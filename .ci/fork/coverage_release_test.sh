@@ -70,6 +70,19 @@ jq -e --arg a "${first}" --arg h "${head}" \
     "${work}/output/coverage-result.json" >/dev/null
 echo 'PASS: version-only candidate checks all changes since actual combined ancestor, skipping daily null record'
 
+for kind in base-unit-coverage integration-coverage; do
+    printf '3:ffi/example.lua\n1 1 1 \n' >"${work}/artifacts/${kind}/sample.stats.out"
+done
+run 0
+jq -e --arg a "${first}" --arg h "${head}" \
+    '.ok == true and .commit == $h and .diff_base == $a and .overall.percent == 100 and .diff_combined.percent == 100 and .diff_combined.total == 1' \
+    "${work}/output/coverage-result.json" >/dev/null
+grep -qx "base_sha=${head}" "${work}/outputs"
+echo 'PASS: valid exact-source candidate with full unit and integration coverage passes release gate'
+for kind in base-unit-coverage integration-coverage; do
+    printf '3:ffi/example.lua\n1 1 0 \n' >"${work}/artifacts/${kind}/sample.stats.out"
+done
+
 printf '%s\n' "${daily}" >"${work}/artifacts/integration-coverage/base-sha.txt"
 run 2
 echo 'PASS: mismatched product integration SHA rejected'
