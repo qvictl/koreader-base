@@ -5,9 +5,8 @@
 #   - Lint                 : shellcheck/shfmt, luacheck, cmakelint (.ci/lint_script.sh)
 #   - Build and unit tests : emulator build, FFI cdecls check, bincheck, unit tests (busted,
 #                            with luacov)
-#   - Coverage             : unit diff >=80%, unit overall ratchet vs the PR base,
-#                            and dated unit targets (see CONTRIBUTING.md)
-# Product integration and combined coverage gate KOReader Fork releases only.
+#   - Coverage             : affected-suite unit diff >=80% (see CONTRIBUTING.md)
+# Product releases run full unit/integration and whole-coverage gates.
 # The "Tests policy" check lives in tests_policy.yml (it must re-run when labels change).
 
 name: CI
@@ -27,8 +26,7 @@ on:
         type: string
 
 concurrency:
-  # Pushes to main: one group per commit (never cancelled), so that every main commit gets its
-  # coverage record (the baseline of the PRs based on it).
+  # Keep separate push commits; each uses its own event.before comparison.
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.sha) || github.ref }}
   cancel-in-progress: true
 
@@ -83,6 +81,35 @@ jobs:
           fetch-depth: 0
           filter: tree:0
           show-progress: false
+      - name: Select affected unit suites
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ inputs.pr }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .ci/fork/select_tests_test.py
+          args=()
+          case "${EVENT_NAME}" in
+            pull_request)
+              # Use the main parent actually tested by the PR merge ref.
+              base="$(.ci/fork/coverage_baseline.sh base pull_request)"
+              args+=(--base "${base}")
+              ;;
+            push)
+              if [[ -n "${PUSH_BEFORE}" && ! "${PUSH_BEFORE}" =~ ^0+$ ]]; then
+                args+=(--base "${PUSH_BEFORE}")
+              fi
+              ;;
+            workflow_dispatch)
+              if [[ -n "${PR_NUMBER}" ]]; then
+                base="$(gh pr view "${PR_NUMBER}" --json baseRefOid --jq .baseRefOid)"
+                args+=(--base "${base}")
+              fi
+              ;;
+          esac
+          python3 .ci/fork/select_tests.py "${args[@]}" --out unit-selection.json
+          cat unit-selection.json >>"${GITHUB_STEP_SUMMARY}"
       - name: Fetch
         run: |
           docker pull --quiet "${DOCKER_IMG}"
@@ -160,8 +187,11 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" .
       - name: Unit tests (with coverage)
         run: |
+          # Do not mix restored/generated statistics with a partial or empty selection.
+          find build -name 'luacov.stats.out*' -not -path '*/staging/*' -delete
+          rm -rf coverage
           # (-j 1: the test processes accumulate their luacov stats in the same file)
-          ./.ci/build_script.sh --assume-old=all test T="--coverage -j 1 -o /home/ko/base/junit.xml"
+          ./.ci/build_script.sh --assume-old=all test T="--selection /home/ko/base/unit-selection.json --coverage -j 1 -o /home/ko/base/junit.xml"
           sudo chown -R "$(id -u):$(id -g)" .
       - name: Collect coverage & luajit
         if: ${{ !cancelled() }}
@@ -189,6 +219,7 @@ jobs:
           path: |
             coverage/
             base-luajit.tar.xz
+            unit-selection.json
             junit.xml
           if-no-files-found: ignore
           retention-days: 14
@@ -220,7 +251,6 @@ jobs:
         id: coverage
         env:
           GH_TOKEN: ${{ github.token }}
-          COVERAGE_MODE: unit
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -234,13 +264,11 @@ jobs:
           retention-days: 30
 
   coverage-publish:
-    # main's coverage, recorded per commit (`coverage` branch): the baseline of the ratchet of
-    # the PRs based on this commit, history, badges. Publishes of several main commits may run
-    # in parallel or out of order (coverage_publish.sh retries rejected pushes and only moves
-    # baseline.json forward).
+    # Partial PR/push data never creates whole-coverage history. Releases publish
+    # full measurements through KOReader; explicit manual full runs remain available.
     name: Coverage history
     needs: coverage-report
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.coverage-report.result == 'success'
+    if: github.event_name == 'workflow_dispatch' && !inputs.pr && github.ref == 'refs/heads/main' && needs.coverage-report.result == 'success' && needs.coverage-report.outputs.ok == 'true'
     runs-on: ubuntu-26.04
     permissions:
       contents: write

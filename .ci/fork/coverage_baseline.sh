@@ -14,7 +14,8 @@
 #       - otherwise (workflow_dispatch on a branch, e.g. by the upstream sync), and for a PR
 #         checkout that is not a merge: git merge-base HEAD MAIN_REF (default origin/main).
 #   coverage_baseline.sh lookup BASE HISTORY_JSONL [unit|combined]
-#       Prints "SHA PERCENT exact|ancestor": main's overall coverage recorded for BASE on the
+#       Selects the unit or combined metric (default combined), skipping unmeasured values.
+#       Prints "SHA PERCENT exact|ancestor": main's selected coverage recorded for BASE on the
 #       `coverage` branch (history.jsonl: one record per measured main commit, keyed by its
 #       SHA; the last record of a commit wins), or else for BASE's nearest recorded ancestor
 #       (needs BASE's history: full clone). Prints nothing when no ancestor has a record.
@@ -36,7 +37,7 @@ case "$1" in
         declare -A pct
         while IFS=$'\t' read -r c p; do
             [[ -z "${c}" ]] || [[ -z "${p}" ]] || pct[${c}]="${p}"
-        done < <(jq -R -r --arg metric "${metric}" 'fromjson? | objects
+        done < <(jq -R -r --arg metric "${metric}" 'fromjson? | objects | select(.mode != "diff")
             | [.commit, (if $metric == "unit" then (.overall_unit.percent // .unit) else
                 (if .mode == "unit" then null else (.overall | if type == "object" then .percent else . end) end) end)]
             | select(.[0] != null and .[1] != null) | @tsv' "$3" 2>/dev/null)

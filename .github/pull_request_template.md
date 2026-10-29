@@ -23,6 +23,6 @@ AI reviewers and the review gate: see REVIEW_POLICY.md.
 
 - [ ] Tests added or updated for every code change (or the reason why not is explained above)
 - [ ] `make test` passes locally (or I rely on CI and checked its results)
-- [ ] Coverage check green: changed lines ≥ 80% by unit tests and ≥ 90% by unit + integration tests, no overall drop, owned modules on target
+- [ ] PR coverage green: affected unit suites cover ≥ 80% of changed executable lines; full unit/integration, independent overall ratchets and module targets gate the product release
 - [ ] User-visible effects are covered by a qvictl/koreader integration scenario (named above)
 - [ ] Every AI review comment flagged as a potential issue / bug is fixed or answered with a justification before resolving it ([REVIEW_POLICY.md](../blob/main/REVIEW_POLICY.md))

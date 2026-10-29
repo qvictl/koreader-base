@@ -2,7 +2,7 @@
 # shellcheck disable=SC2317
 
 declare -r RUNTESTS_GETOPT_SHORT='cf:gj:lo:qt:vw:x'
-declare -r RUNTESTS_GETOPT_LONG='coverage,filter:,gdb,jobs:,list,output:,quiet,tags:,verbose,wrapper:,exitfirst,busted::,meson::'
+declare -r RUNTESTS_GETOPT_LONG='coverage,filter:,gdb,jobs:,list,output:,quiet,tags:,verbose,wrapper:,exitfirst,busted::,meson::,selection:'
 declare -r RUNTESTS_HELP="
 OPTIONS:
 
@@ -13,6 +13,7 @@ OPTIONS:
     -g, --gdb                 run tests under gdb
     -l, --list                list available tests
     --meson[=OPTS]            use the meson runner (default if available)
+    --selection=FILE          fork CI: validated affected base suites manifest
     -o FILE, --output=FILE    write a JUnit XML report of all tests run to FILE
     -j N, --jobs=N            how many parallel processes to use (meson only)
     -q, --quiet               produce less output to the terminal (meson only)
@@ -131,6 +132,7 @@ debug=0
 meson_args=()
 output=''
 suite='all'
+selection=''
 use_meson=1
 wrapper=''
 
@@ -183,6 +185,10 @@ while [[ $# -gt 0 ]]; do
             # shellcheck disable=SC2206
             meson_args+=(${VALUE})
             ;;
+        --selection)
+            shift
+            selection="${VALUE}"
+            ;;
         -o | --output)
             shift
             output="$1"
@@ -222,6 +228,27 @@ case "$1" in
         shift
         ;;
 esac
+
+if [[ -n "${selection}" ]]; then
+    [[ "${suite}" == base && $# -eq 0 ]] || {
+        echo 'selection requires the complete base suite, without other test names' >&2
+        exit 2
+    }
+    source_root="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve().parent.parent)' "$0")"
+    backend=busted
+    [[ "${use_meson}" -eq 0 ]] || backend=meson
+    selected="$(python3 "${source_root}/.ci/fork/select_tests.py" --repo "${source_root}" --consume "${selection}" --backend "${backend}")"
+    mapfile -t selection_lines <<<"${selected}"
+    case "${selection_lines[0]}" in
+        none)
+            echo 'No affected base unit suites (validated manifest).'
+            exit 0
+            ;;
+        selected) set -- "${selection_lines[@]:1}" ;;
+        full) ;;
+        *) exit 2 ;;
+    esac
+fi
 
 export LUA_CPATH='?.so;common/?.so;spec/rocks/lib/lua/5.1/?.so'
 export LUA_PATH='?.lua;common/?.lua;frontend/?.lua;spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua'

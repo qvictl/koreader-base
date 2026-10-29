@@ -16,12 +16,14 @@ stats of the unit tests and of the emulator integration tests:
 Usage:
   luajit coverage.lua --config CONFIG.lua --src DIR [--diff FILE] [--fork-diff FILE]
       [--unit STATS]... [--integration STATS]... [--baseline-overall PCT] [--baseline-label TEXT]
-      [--enforce diff,ratchet,owned,unit] [--today YYYY-MM-DD] [--title TEXT] [--note TEXT]
+      [--mode unit|combined] [--enforce diff,ratchet,owned,unit] [--today YYYY-MM-DD] [--title TEXT] [--note TEXT]
       [--md FILE] [--json FILE]
 
   --diff       unified diff (-U0) of the change being checked (PR), for gates 1 & 2
   --fork-diff  unified diff (-U0) of the fork's changes vs upstream, for "fork" owned scopes
-  --baseline-overall  main's overall coverage at the change's base, for the ratchet (gate 3)
+  --baseline-overall  full unit or combined coverage at its measured ancestor (gate 3)
+  --baseline-unit     independent full-unit ratchet for a combined release measurement
+  --mode diff         selected UT: changed-line 80% only; whole metrics remain null
   --baseline-label    where that baseline comes from (e.g. "main@1a2b3c4d (this change's base)")
   --enforce    gates whose failure makes the exit code 1 (others are reported only)
 
@@ -45,6 +47,8 @@ do
         elseif a == "--integration" then table.insert(args.integration, nxt())
         elseif a == "--baseline-overall" then args.baseline_overall = tonumber(nxt())
         elseif a == "--baseline-label" then args.baseline_label = nxt()
+        elseif a == "--baseline-unit" then args.baseline_unit = tonumber(nxt())
+        elseif a == "--baseline-unit-label" then args.baseline_unit_label = nxt()
         elseif a == "--enforce" then
             for g in nxt():gmatch("[^,]+") do args.enforce[g] = true end
         elseif a == "--today" then args.today = nxt()
@@ -58,9 +62,14 @@ do
     end
     assert(args.config and args.src, "--config and --src are required")
 end
-assert(args.mode == "unit" or args.mode == "combined", "invalid coverage mode")
-assert(args.mode ~= "unit" or #args.integration == 0, "unit mode cannot consume integration stats")
-local unit_only = args.mode == "unit"
+assert(args.mode == "unit" or args.mode == "combined" or args.mode == "diff", "invalid coverage mode")
+local partial = args.mode == "diff"
+local unit_only = args.mode ~= "combined"
+assert(not unit_only or #args.integration == 0, "unit/diff mode cannot consume integration stats")
+if partial then
+    assert(not args.baseline_overall and not args.baseline_unit, "partial statistics have no overall baseline")
+    for g in pairs(args.enforce) do assert(g == "diff" or g == "none", "partial statistics only enforce diff coverage") end
+end
 local config = dofile(args.config)
 local today = args.today or os.date("!%Y-%m-%d")
 
@@ -259,6 +268,9 @@ local function parseDiff(file, include)
 end
 
 local diff_changed, diff_order = parseDiff(args.diff, config.diff_include)
+if partial and #args.unit == 0 then
+    assert(#diff_order == 0, "no-unit measurement requires no scoped production Lua diff")
+end
 local fork_changed, fork_order, fork_added = parseDiff(args.fork_diff, config.owned_include or config.diff_include)
 
 -- }}}
@@ -289,7 +301,7 @@ diff.combined.percent = pct(diff.combined.covered, diff.combined.total)
 
 local overall = { covered = 0, total = 0, files = 0 }
 local overall_unit = { covered = 0, total = 0 }
-do
+if not partial then
     local quoted = {}
     for _, p in ipairs(config.overall.paths) do table.insert(quoted, "'" .. p .. "'") end
     local p = io.popen("git -C '" .. args.src .. "' ls-files -- " .. table.concat(quoted, " "))
@@ -341,7 +353,7 @@ end
 
 local listed = {}
 local entries = {}
-for _, l in ipairs(lines(args.src .. "/" .. config.owned.list) or {}) do
+for _, l in ipairs(not partial and (lines(args.src .. "/" .. config.owned.list) or {}) or {}) do
     local path, scope = l:match("^%s*([^#%s]+)%s+(%S+)")
     if path then
         listed[path] = true
@@ -349,7 +361,7 @@ for _, l in ipairs(lines(args.src .. "/" .. config.owned.list) or {}) do
     end
 end
 -- Modules added by the fork are owned, even if not listed (yet).
-for _, path in ipairs(fork_order) do
+for _, path in ipairs(partial and {} or fork_order) do
     if fork_added[path] and not listed[path] then
         table.insert(entries, { path = path, scope = "file", auto = true })
     end
@@ -406,6 +418,7 @@ else
         string.format("%s (%d / %d)", fmtPct(diff.combined.covered, diff.combined.total), diff.combined.covered, diff.combined.total),
         "≥ " .. cfg_gates.diff_combined_min .. "%") end
 end
+if not partial then
 if args.baseline_overall then
     gate("ratchet", "Overall coverage (ratchet)", overall.percent >= args.baseline_overall - cfg_gates.ratchet_tolerance_pp,
         string.format("%.2f%% (%+.2f pp)", overall.percent, overall.percent - args.baseline_overall),
@@ -425,11 +438,19 @@ gate("owned", unit_only and "Fork-owned modules, unit tests" or "Fork-owned modu
             return low and string.format("%.1f%% (%s)", low.percent, low.path:match("[^/]+$")) or "–"
         end)()),
     string.format("each ≥ %s%% (since %s)", owned.min or 0, owned.min_from or "–"))
+if args.baseline_unit then
+    gate("unit_ratchet", "Overall unit coverage (ratchet)",
+        overall_unit.percent >= args.baseline_unit - cfg_gates.ratchet_tolerance_pp,
+        string.format("%.2f%% (%+.2f pp)", overall_unit.percent, overall_unit.percent - args.baseline_unit),
+        string.format("≥ %.2f%% (± %.2f pp) of %s", args.baseline_unit, cfg_gates.ratchet_tolerance_pp,
+            args.baseline_unit_label or "main"))
+end
+end
 -- 6: overall unit-test coverage vs its dated targets (blocking from each target's date).
 local unit_cfg = config.overall.unit
 local unit_base = unit_cfg and unit_cfg.baseline
 local unit_target, unit_target_from, unit_next, unit_next_from
-if unit_base and unit_base.percent then
+if not partial and unit_base and unit_base.percent then
     unit_target, unit_target_from = scheduled(unit_cfg.targets, "delta_pp")
     unit_next, unit_next_from = nextScheduled(unit_cfg.targets, "delta_pp")
     local value = string.format("%.2f%% (%+.2f pp vs day-one %.2f%%)", overall_unit.percent,
@@ -473,6 +494,9 @@ for _, g in ipairs(gates) do
         g.ok and "✅" or (g.enforced and "❌" or "⚠️ (not enforced)")))
 end
 w()
+if partial then
+    w("Only changed-line unit coverage was measured. Whole-repository coverage is unmeasured and is checked at release.")
+else
 local otxt = string.format((unit_only and "**Overall, unit tests only** (%s, %d files):" or "**Overall, unit + integration** (%s, %d files):") .. " **%.2f%%** of %d executable lines",
     table.concat(config.overall.paths, ", "), overall.files, overall.percent, overall.total)
 if not unit_only and base and base.percent then
@@ -513,6 +537,7 @@ if #owned.unlisted > 0 then
         return t
     end)(), ", ") .. ".")
 end
+end
 if #diff.files > 0 then
     w()
     w("<details><summary>Changed lines (" .. #diff.files .. " file(s))</summary>")
@@ -547,7 +572,7 @@ if args.json then
     add("mode", string.format("%q", args.mode))
     add("overall", unit_only and "null" or string.format('{"covered": %d, "total": %d, "percent": %.3f, "files": %d}',
         overall.covered, overall.total, overall.percent, overall.files))
-    add("overall_unit", string.format('{"covered": %d, "total": %d, "percent": %.3f, "min": %s}',
+    add("overall_unit", partial and "null" or string.format('{"covered": %d, "total": %d, "percent": %.3f, "min": %s}',
         overall_unit.covered, overall_unit.total, overall_unit.percent,
         overall_unit.min and string.format("%.3f", overall_unit.min) or "null"))
     add("diff_unit", string.format('{"covered": %d, "total": %d, "percent": %.3f}', diff.unit.covered, diff.unit.total, diff.unit.percent))
@@ -558,10 +583,13 @@ if args.json then
         table.insert(mods, string.format('%q: {"scope": %q, "covered": %d, "total": %d, "percent": %.3f}',
             e.path, e.scope, e.covered, e.total, e.percent))
     end
+    add("unit_ratchet", string.format('{"baseline": %s, "label": %s}',
+        args.baseline_unit and string.format("%.3f", args.baseline_unit) or "null",
+        args.baseline_unit_label and string.format("%q", args.baseline_unit_label) or "null"))
     add("ratchet", string.format('{"baseline": %s, "label": %s}',
         args.baseline_overall and string.format("%.3f", args.baseline_overall) or "null",
         args.baseline_label and string.format("%q", args.baseline_label) or "null"))
-    add(unit_only and "owned_unit" or "owned", string.format('{"covered": %d, "total": %d, "percent": %.3f, "min": %s, "ok": %s, "modules": {%s}}',
+    add(unit_only and "owned_unit" or "owned", partial and "null" or string.format('{"covered": %d, "total": %d, "percent": %.3f, "min": %s, "ok": %s, "modules": {%s}}',
         owned.covered, owned.total, owned.percent, owned.min or "null", tostring(owned.ok), table.concat(mods, ", ")))
     if unit_only then add("owned", "null") end
     local gs = {}
