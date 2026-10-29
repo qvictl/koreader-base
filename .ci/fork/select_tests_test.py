@@ -104,7 +104,10 @@ class SelectionTests(unittest.TestCase):
         for path in ("ffi/loadlib.lua", "ffi/util.lua", "ffi/posix.lua", "ffi/example_h.lua", "blitbuffer.c", "Makefile", "test-runner/runtests", "spec/unit/fixture.lua"):
             with self.subTest(path=path):
                 self.git("reset", "-q", "--hard", self.base)
-                self.assertEqual(self.changed(path)["mode"], "full")
+                self.assertEqual(self.git("status", "--porcelain"), "")
+                result = self.changed(path)
+                self.assertEqual(result["changed_files"], [path])
+                self.assertEqual(result["mode"], "full")
 
     def test_unknown_production_consumer_full(self):
         self.assertEqual(self.changed("ffi/new.lua")["mode"], "full")
@@ -253,11 +256,37 @@ local b = loadfile [=[ffi/wrapper.lua]=]
             self.assertEqual(result["changed_files"], ["ffi/leaf.lua"])
             self.assertEqual(result["tests"], ["spec/unit/leaf_spec.lua"])
 
-    def test_macos_new_branch_push_defaults_full(self):
+    def test_initial_branch_push_defaults_full(self):
         self.changed()
-        result = self.run_workflow_selection("build.yml", "push", "0" * 40)
-        self.assertEqual(result["mode"], "full")
-        self.assertIsNone(result["base_sha"])
+        for workflow in ("ci.yml", "build.yml"):
+            for before in ("0" * 40, ""):
+                result = self.run_workflow_selection(workflow, "push", before)
+                self.assertEqual(result["mode"], "full")
+                self.assertIsNone(result["base_sha"])
+
+    def test_actual_reporter_initial_push_diff_and_invalid_null_base(self):
+        self.run_workflow_selection("ci.yml", "push", "0" * 40)
+        artifacts = self.repo / "artifacts"
+        (artifacts / "unit-coverage").mkdir(parents=True)
+        (self.repo / "unit-selection.json").rename(artifacts / "unit-coverage/unit-selection.json")
+        work = self.repo / "work"
+        work.mkdir()
+        root = Path(__file__).resolve().parents[2]
+        # Run the real reporter's provenance/base/diff phase, stopping before
+        # artifact unpacking and Lua selftests (those have their own real tests).
+        prefix = (root / ".ci/fork/coverage.sh").read_text().split("# luajit & luacov.", 1)[0]
+        def run(before):
+            return subprocess.run(["bash", "-eo", "pipefail", "-c", prefix, "--", str(artifacts)], cwd=self.repo,
+                                  env=dict(os.environ, EVENT_NAME="push", PUSH_BEFORE=before,
+                                           PR_NUMBER="", RUNNER_TEMP=str(work)), capture_output=True, text=True)
+        result = run("0" * 40)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("mode: diff", result.stdout)
+        self.assertIn("enforce: diff", result.stdout)
+        diff = (work / "change.diff").read_text()
+        for path in ("ffi/leaf.lua", "ffi/wrapper.lua", "ffi/other.lua"):
+            self.assertIn("+++ b/" + path, diff)
+        self.assertEqual(run(self.base).returncode, 2)
 
 
 if __name__ == "__main__":

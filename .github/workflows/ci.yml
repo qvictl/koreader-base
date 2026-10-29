@@ -96,7 +96,11 @@ jobs:
               base="$(.ci/fork/coverage_baseline.sh base pull_request)"
               args+=(--base "${base}")
               ;;
-            push) args+=(--base "${PUSH_BEFORE}") ;;
+            push)
+              if [[ -n "${PUSH_BEFORE}" && ! "${PUSH_BEFORE}" =~ ^0+$ ]]; then
+                args+=(--base "${PUSH_BEFORE}")
+              fi
+              ;;
             workflow_dispatch)
               if [[ -n "${PR_NUMBER}" ]]; then
                 base="$(gh pr view "${PR_NUMBER}" --json baseRefOid --jq .baseRefOid)"

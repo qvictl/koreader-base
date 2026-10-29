@@ -8,7 +8,7 @@
 # luacov stats: `*.stats.out` files under `unit-coverage*/` (unit tests only).
 # Product-release combined coverage uses coverage_release.sh.
 #
-# Environment: EVENT_NAME, PR_NUMBER, GH_TOKEN, GITHUB_REPOSITORY.
+# Environment: EVENT_NAME, PR_NUMBER, PUSH_BEFORE, GH_TOKEN, GITHUB_REPOSITORY.
 # PR/push manifests enforce changed-line unit coverage only and cannot become baselines.
 # An explicit manual full run also enforces the unit ratchet and dated unit target.
 # Outputs (GITHUB_OUTPUT): ok=true|false; writes coverage-result.json.
@@ -29,16 +29,24 @@ enforce="diff"
 note='Affected unit suites only; overall coverage is measured by the full product-release gate.'
 baseline=()
 if [[ "${base}" == null ]]; then
-    # Only an explicit manual full run can publish a standalone full-unit record.
-    [[ "${EVENT_NAME}" == workflow_dispatch && -z "${PR_NUMBER}" && "${selection}" == full ]] || exit 2
-    mode=unit
-    enforce=diff,ratchet,unit
-    base="$(git rev-parse HEAD^)"
-    note='Explicit manual full-unit measurement.'
-    git fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage'
-    git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl"
-    if read -r bsha bpct _kind < <("${src}/.ci/fork/coverage_baseline.sh" lookup HEAD "${tmp}/coverage-history.jsonl" unit); then
-        baseline=(--baseline-overall "${bpct}" --baseline-label "main@${bsha:0:8} (latest actual unit measurement)")
+    [[ "${selection}" == full ]] || exit 2
+    if [[ "${EVENT_NAME}" == push && (-z "${PUSH_BEFORE}" || "${PUSH_BEFORE}" =~ ^0+$) ]]; then
+        # No previous branch exists: test everything and enforce diff80 across
+        # the complete initial source, without publishing any whole metric.
+        base="$(git hash-object -t tree /dev/null)"
+        note='Initial push: all suites; changed-line unit gate covers the complete source.'
+    else
+        # Only an explicit manual full run can publish a standalone unit record.
+        [[ "${EVENT_NAME}" == workflow_dispatch && -z "${PR_NUMBER}" ]] || exit 2
+        mode=unit
+        enforce=diff,ratchet,unit
+        base="$(git rev-parse HEAD^)"
+        note='Explicit manual full-unit measurement.'
+        git fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage'
+        git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl"
+        if read -r bsha bpct _kind < <("${src}/.ci/fork/coverage_baseline.sh" lookup HEAD "${tmp}/coverage-history.jsonl" unit); then
+            baseline=(--baseline-overall "${bpct}" --baseline-label "main@${bsha:0:8} (latest actual unit measurement)")
+        fi
     fi
 fi
 echo "base: ${base}, head: $(git rev-parse HEAD), mode: ${mode}, selection: ${selection}, enforce: ${enforce}"
