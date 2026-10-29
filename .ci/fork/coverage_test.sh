@@ -232,6 +232,7 @@ check 'combined lookup skips newer unmeasured unit-only main records' \
     "$(cd "${h}" && "${baseline_tool}" lookup "${B}" "${work}/split-history.jsonl" combined)" "${A} 49.95 ancestor"
 check 'unit lookup uses the exact daily unit record, not the combined ancestor' \
     "$(cd "${h}" && "${baseline_tool}" lookup "${B}" "${work}/split-history.jsonl" unit)" "${B} 40 exact"
+echo 'not json' >>"${work}/split-history.jsonl"
 publisher="$(dirname "${tool}")/coverage_publish.sh"
 jq --arg c "${A}" '. + {commit:$c,date:"2026-10-28"}' "${work}/mode.json" >"${work}/unit-result.json"
 "${publisher}" --merge-record "${work}/unit-result.json" "${work}/split-history.jsonl" >"${work}/merged-record.json"

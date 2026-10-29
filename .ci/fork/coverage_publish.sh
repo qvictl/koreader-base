@@ -22,8 +22,8 @@ set -eo pipefail
 merge_record() {
     local result="$1" history="$2" commit
     commit="$(jq -r '.commit' "${result}")"
-    jq -n --arg c "${commit}" --slurpfile result "${result}" --slurpfile history "${history}" '
-        ($history | map(select(.commit == $c)) | last // {}) as $old |
+    jq -n --arg c "${commit}" --slurpfile result "${result}" --rawfile history "${history}" '
+        ($history | split("\n") | map(fromjson? | objects | select(.commit == $c)) | last // {}) as $old |
         $result[0] as $new |
         $old + {date: $new.date, commit: $c,
             overall: ($new.overall.percent // $old.overall),
