@@ -89,7 +89,7 @@ done
 
 # An unchanged base gitlink can be published again: its own real combined record
 # must remain the global ratchet, while diff coverage still spans the earlier batch.
-history "$(jq -cn --arg a "${first}" --arg b "${daily}" --arg h "${head}" '{commit:$a,overall:50,unit:50},{commit:$b,overall:null,unit:100},{commit:$h,overall:100,unit:100}')"
+history "$(jq -cn --arg a "${first}" --arg b "${daily}" --arg h "${head}" '{commit:$a,overall:50,unit:50},{commit:$b,overall:null,unit:100},{commit:$h,overall:100,unit:50}')"
 for kind in base-unit-coverage integration-coverage; do
     printf '3:ffi/example.lua\n0 1 1 \n' >"${work}/artifacts/${kind}/sample.stats.out"
 done
@@ -108,6 +108,17 @@ jq -e --arg a "${first}" --arg h "${head}" \
 grep -qx "diff_base_sha=${first}" "${work}/outputs"
 grep -qx "ratchet_base_sha=${head}" "${work}/outputs"
 echo 'PASS: repeated exact base SHA passes at its own prior combined level'
+history "$(jq -cn --arg a "${first}" --arg h "${head}" '{commit:$a,overall:50,unit:50},{commit:$h,overall:66.667,unit:100}')"
+printf '3:ffi/example.lua\n0 1 1 \n' >"${work}/artifacts/base-unit-coverage/sample.stats.out"
+run 1
+jq -e --arg h "${head}" \
+    '.ok == false and .unit_ratchet_base == $h and .unit_ratchet.baseline == 100 and .overall.percent == 100 and .diff_unit.percent == 100 and ([.gates[] | select(.enforced and (.ok | not)) | .id] == ["unit_ratchet"])' \
+    "${work}/output/coverage-result.json" >/dev/null
+echo 'PASS: full-unit regression blocks release even when integration keeps combined coverage at 100'
+printf '3:ffi/example.lua\n1 1 1 \n' >"${work}/artifacts/base-unit-coverage/sample.stats.out"
+run 0
+jq -e '.ok == true and .unit_ratchet.baseline == 100 and .overall_unit.percent == 100' "${work}/output/coverage-result.json" >/dev/null
+echo 'PASS: full unit and combined measurements independently satisfy their release ratchets'
 history "$(jq -cn --arg a "${first}" --arg b "${daily}" '{commit:$a,overall:100,unit:100},{commit:$b,overall:null,unit:100}')"
 for kind in base-unit-coverage integration-coverage; do
     printf '3:ffi/example.lua\n1 1 0 \n' >"${work}/artifacts/${kind}/sample.stats.out"

@@ -8,12 +8,10 @@
 # luacov stats: `*.stats.out` files under `unit-coverage*/` (unit tests only).
 # Product-release combined coverage uses coverage_release.sh.
 #
-# Environment: EVENT_NAME, PR_NUMBER, PR_BASE, PUSH_BEFORE, GH_TOKEN, GITHUB_REPOSITORY.
-# Pull requests enforce unit diff, unit overall ratchet and dated unit targets.
-# Upstream sync PRs enforce only dated unit targets. Pushes report actual unit data.
-# The ratchet compares with the coverage recorded for the main commit the change is based on
-# (or its nearest recorded ancestor), not with main's latest: see coverage_baseline.sh.
-# Outputs (GITHUB_OUTPUT): ok=true|false; writes coverage-result.json (for the history).
+# Environment: EVENT_NAME, PR_NUMBER, GH_TOKEN, GITHUB_REPOSITORY.
+# PR/push manifests enforce changed-line unit coverage only and cannot become baselines.
+# An explicit manual full run also enforces the unit ratchet and dated unit target.
+# Outputs (GITHUB_OUTPUT): ok=true|false; writes coverage-result.json.
 
 set -eo pipefail
 
@@ -22,72 +20,31 @@ artifacts="$(cd "$1" && pwd)"
 tmp="${RUNNER_TEMP:-/tmp}"
 src="${PWD}"
 
-mode="${COVERAGE_MODE:-unit}"
-[[ "${mode}" == unit ]] || {
-    echo "daily coverage requires unit mode" >&2
-    exit 2
-}
-enforce=diff,ratchet,unit
-note=''
-case "${EVENT_NAME}" in
-    pull_request)
-        # The merge ref's first parent (pull_request.base.sha may be older).
-        base="$("${src}/.ci/fork/coverage_baseline.sh" base pull_request)" || base="${PR_BASE}"
-        ;;
-    workflow_dispatch)
-        if [[ -n "${PR_NUMBER}" ]]; then
-            base="$(gh pr view "${PR_NUMBER}" --json baseRefOid --jq .baseRefOid)"
-        else
-            enforce=''
-            base="$(git rev-parse HEAD~1)"
-        fi
-        ;;
-    *)
-        enforce=''
-        base="${PUSH_BEFORE}"
-        if [[ -z "${base}" ]] || [[ "${base}" =~ ^0+$ ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            base="$(git rev-parse HEAD~1)"
-        fi
-        note='(Push to main: reported, not enforced; this becomes the new baseline.)'
-        ;;
-esac
-git fetch --quiet origin '+refs/heads/upstream:refs/remotes/origin/upstream' || true
-git fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage' 2>/dev/null || true
-git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null || true
-base="$(git merge-base "${base}" HEAD)"
-# The ratchet's base: the main commit the change is based on.
-case "${EVENT_NAME}" in
-    workflow_dispatch) ratchet_base="$("${src}/.ci/fork/coverage_baseline.sh" base workflow_dispatch)" || ratchet_base="${base}" ;;
-    *) ratchet_base="${base}" ;;
-esac
-if [[ -n "${enforce}" ]] && git rev-parse -q --verify origin/upstream >/dev/null; then
-    all="$(git rev-list --count "${base}..HEAD")"
-    own="$(git rev-list --count "${base}..HEAD" --not origin/upstream)"
-    if [[ "${own}" != "${all}" ]]; then
-        enforce=unit
-        note="This change brings $((all - own)) upstream commit(s) (upstream sync): only the dated unit-test target is enforced."
+manifest="${artifacts}/unit-coverage/unit-selection.json"
+python3 "${src}/.ci/fork/select_tests.py" --consume "${manifest}" >/dev/null
+selection="$(jq -r .mode "${manifest}")"
+base="$(jq -r .base_sha "${manifest}")"
+mode="diff"
+enforce="diff"
+note='Affected unit suites only; overall coverage is measured by the full product-release gate.'
+baseline=()
+if [[ "${base}" == null ]]; then
+    # Only an explicit manual full run can publish a standalone full-unit record.
+    [[ "${EVENT_NAME}" == workflow_dispatch && -z "${PR_NUMBER}" && "${selection}" == full ]] || exit 2
+    mode=unit
+    enforce=diff,ratchet,unit
+    base="$(git rev-parse HEAD^)"
+    note='Explicit manual full-unit measurement.'
+    git fetch --quiet origin '+refs/heads/coverage:refs/remotes/origin/coverage'
+    git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl"
+    if read -r bsha bpct _kind < <("${src}/.ci/fork/coverage_baseline.sh" lookup HEAD "${tmp}/coverage-history.jsonl" unit); then
+        baseline=(--baseline-overall "${bpct}" --baseline-label "main@${bsha:0:8} (latest actual unit measurement)")
     fi
 fi
-echo "base: ${base}, ratchet base: ${ratchet_base}, head: $(git rev-parse HEAD), enforce: ${enforce:-none}"
-
+echo "base: ${base}, head: $(git rev-parse HEAD), mode: ${mode}, selection: ${selection}, enforce: ${enforce}"
 git diff -U0 "${base}" HEAD -- '*.lua' >"${tmp}/change.diff"
-if git rev-parse -q --verify origin/upstream >/dev/null; then
-    git diff -U0 "$(git merge-base HEAD origin/upstream)" HEAD -- '*.lua' >"${tmp}/fork.diff"
-else
-    : >"${tmp}/fork.diff"
-fi
-git show origin/coverage:history.jsonl >"${tmp}/coverage-history.jsonl" 2>/dev/null || : >"${tmp}/coverage-history.jsonl"
-if read -r bsha bpct bkind < <("${src}/.ci/fork/coverage_baseline.sh" lookup "${ratchet_base}" "${tmp}/coverage-history.jsonl" unit); then
-    if [[ "${bkind}" == exact ]]; then
-        label="main@${bsha:0:8} (this change's base)"
-    else
-        label="main@${bsha:0:8} (nearest ancestor with coverage of base ${ratchet_base:0:8})"
-    fi
-    baseline=(--baseline-overall "${bpct}" --baseline-label "${label}")
-else
-    baseline=(--baseline-label "no coverage recorded for base ${ratchet_base:0:8} or its ancestors")
-fi
-echo "ratchet baseline: ${baseline[*]}"
+# Whole fork-owned/module gates only consume full release data.
+: >"${tmp}/fork.diff"
 
 # luajit & luacov.
 emu="${tmp}/coverage-luajit"
@@ -100,12 +57,20 @@ tar -C "${emu}" -xJf "${tarball}" koreader/luajit koreader/spec/rocks 2>/dev/nul
 # Synthetic source/provenance tests only; no KOReader build or integration suite.
 "${src}/.ci/fork/coverage_release_test.sh" "${emu}/koreader" || exit 2
 stats=()
-while read -r f; do
-    case "${f}" in
-        */integration-coverage*) stats+=(--integration "${f}") ;;
-        *) stats+=(--unit "${f}") ;;
-    esac
-done < <(find "${artifacts}" -name '*.stats.out' | sort)
+while IFS= read -r -d '' f; do
+    [[ -s "${f}" ]] && stats+=(--unit "${f}")
+done < <(find "${artifacts}/unit-coverage" -name '*.stats.out' -print0 | sort -z)
+if [[ "${selection}" == none ]]; then
+    [[ ${#stats[@]} -eq 0 ]] || {
+        echo 'no-test selection contains stale statistics' >&2
+        exit 2
+    }
+else
+    [[ ${#stats[@]} -gt 0 ]] || {
+        echo 'unit run produced no coverage statistics' >&2
+        exit 2
+    }
+fi
 echo "stats: ${stats[*]}"
 
 md="${tmp}/coverage.md"

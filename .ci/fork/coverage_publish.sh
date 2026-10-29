@@ -8,7 +8,8 @@
 #   history.jsonl      one record per measured main commit, keyed by its SHA (a re-run replaces
 #                      its commit's record): the PR ratchet compares a PR with the record of its
 #                      base commit, or of the base's nearest recorded ancestor (coverage_baseline.sh)
-#   baseline.json      main's latest measured coverage (full result; only moves forward: an
+#   baseline.json      main's latest combined coverage (release candidates only)
+#   baseline-unit.json main's latest unit coverage (full result; only moves forward: an
 #                      out-of-order publish of an older main commit does not replace it)
 #   HISTORY.md         the trend, as a table
 #   badge.json, badge-owned.json   shields.io endpoint badges (from baseline.json)
@@ -21,6 +22,10 @@ set -eo pipefail
 # Also exercised offline: a unit-only re-run must not erase real combined data.
 merge_record() {
     local result="$1" history="$2" commit
+    jq -e '.mode != "diff" and .overall_unit != null' "${result}" >/dev/null || {
+        echo "partial coverage cannot be published" >&2
+        return 2
+    }
     commit="$(jq -r '.commit' "${result}")"
     jq -n --arg c "${commit}" --slurpfile result "${result}" --rawfile history "${history}" '
         ($history | split("\n") | map(fromjson? | objects | select(.commit == $c)) | last // {}) as $old |
@@ -41,6 +46,10 @@ if [[ "${1:-}" == --merge-record ]]; then
     exit
 fi
 result="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+jq -e '.mode != "diff" and .overall_unit != null' "${result}" >/dev/null || {
+    echo "partial coverage cannot be published" >&2
+    exit 2
+}
 repo="${COVERAGE_PUBLISH_REPOSITORY:-${GITHUB_REPOSITORY:?}}"
 commit="$(jq -r '.commit' "${result}")"
 work="$(mktemp -d)"

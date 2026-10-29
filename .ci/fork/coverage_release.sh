@@ -83,6 +83,10 @@ if read -r ratchet_base percent kind < <(cd "${src}" && "${tools}/coverage_basel
 else
     baseline=(--baseline-label 'no actual combined coverage; ratchet not established')
 fi
+unit_ratchet_base=''
+if read -r unit_ratchet_base unit_percent kind < <(cd "${src}" && "${tools}/coverage_baseline.sh" lookup "${head}" "${work}/history.jsonl" unit); then
+    baseline+=(--baseline-unit "${unit_percent}" --baseline-unit-label "base@${unit_ratchet_base:0:8} (latest actual full-unit measurement)")
+fi
 git -C "${src}" diff -U0 "${base}" HEAD -- '*.lua' >"${work}/change.diff"
 if git -C "${src}" rev-parse --verify origin/upstream >/dev/null 2>&1; then
     upstream="$(git -C "${src}" merge-base HEAD origin/upstream)"
@@ -99,12 +103,12 @@ code=0
     ./luajit -e "package.path='spec/rocks/share/lua/5.1/?.lua;spec/rocks/share/lua/5.1/?/init.lua;'..package.path" \
         "${tools}/coverage.lua" --mode combined --config "${src}/.ci/coverage_config.lua" --src "${src}" \
         --diff "${work}/change.diff" --fork-diff "${work}/fork.diff" "${stats[@]}" "${baseline[@]}" \
-        --enforce diff,ratchet,owned,unit --title 'Base product-release coverage' \
+        --enforce diff,ratchet,unit_ratchet,owned,unit --title 'Base product-release coverage' \
         --md "${work}/coverage.md" --json "${result}"
 ) || code=$?
 [[ "${code}" -le 1 ]] || exit "${code}"
-jq --arg commit "${head}" --arg base "${base}" --arg ratchet "${ratchet_base}" --arg tooling "$(git -C "${tools}" rev-parse HEAD)" \
-    '. + {commit: $commit, event: "product_release", diff_base: $base, ratchet_base: (if $ratchet == "" then null else $ratchet end), tooling_commit: $tooling}' \
+jq --arg commit "${head}" --arg base "${base}" --arg ratchet "${ratchet_base}" --arg unit_ratchet "${unit_ratchet_base}" --arg tooling "$(git -C "${tools}" rev-parse HEAD)" \
+    '. + {commit: $commit, event: "product_release", diff_base: $base, ratchet_base: (if $ratchet == "" then null else $ratchet end), unit_ratchet_base: (if $unit_ratchet == "" then null else $unit_ratchet end), tooling_commit: $tooling}' \
     "${result}" >"${result}.tmp"
 mv "${result}.tmp" "${result}"
 cat "${work}/coverage.md" >>"${GITHUB_STEP_SUMMARY}"
@@ -113,6 +117,7 @@ cat "${work}/coverage.md" >>"${GITHUB_STEP_SUMMARY}"
     echo "baseline_sha=${base}"
     echo "diff_base_sha=${base}"
     echo "ratchet_base_sha=${ratchet_base}"
+    echo "unit_ratchet_base_sha=${unit_ratchet_base}"
     echo "ok=$([[ "${code}" -eq 0 ]] && echo true || echo false)"
 } >>"${GITHUB_OUTPUT}"
 exit "${code}"

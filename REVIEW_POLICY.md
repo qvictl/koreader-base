@@ -163,3 +163,5 @@ gh api -X PATCH repos/$R/branches/main/protection/required_pull_request_reviews 
   condition stops holding, and bot approvals on hard failures.
 - **Auto-merge** uses the owner's PAT from environment `review-gate` (main only); a PR that is already mergeable is
   merged directly at the evaluated head SHA.
+
+PR/main CI 运行受影响的完整 unit suite，并保留 diff unit ≥80%；不将 partial coverage 写入整体基线。发版运行全量 unit/integration，独立整体 unit/combined 棘轮、dated 与 module 门槛保持不变。手动无比较范围及本地运行默认全量。
