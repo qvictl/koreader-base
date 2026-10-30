@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-29",
+  "date": "2026-10-30",
   "mode": "combined",
   "overall": {
     "covered": 5939,
@@ -25,11 +25,11 @@
   },
   "unit_ratchet": {
     "baseline": 41.58,
-    "label": "base@7a32fc9e (latest actual full-unit measurement)"
+    "label": "base@7c4e2f0d (latest actual full-unit measurement)"
   },
   "ratchet": {
     "baseline": 45.833,
-    "label": "base@7a32fc9e (latest actual combined measurement)"
+    "label": "base@7c4e2f0d (latest actual combined measurement)"
   },
   "owned": {
     "covered": 92,
@@ -88,8 +88,8 @@
   "commit": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
   "event": "product_release",
   "diff_base": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
-  "ratchet_base": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
-  "unit_ratchet_base": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
+  "ratchet_base": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
+  "unit_ratchet_base": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
   "tooling_commit": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
-  "updated": "2026-10-29T17:19:32Z"
+  "updated": "2026-10-30T10:36:14Z"
 }
