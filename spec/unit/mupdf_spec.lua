@@ -224,6 +224,89 @@ describe("mupdf module", function()
         end)
     end)
 
+    describe("blitbuffer scaling", function()
+        it("should pass pixmap strides matching the actual data owner", function()
+            local ffi = require("ffi")
+            local BB = require("ffi/blitbuffer")
+            local new = BB.new
+            local slot, backend
+            for index = 1, 20 do
+                local name, value = debug.getupvalue(M.scaleBlitBuffer, index)
+                if not name then break end
+                if name == "W" then slot, backend = index, value; break end
+            end
+            assert.is_not_nil(slot)
+            local owners = {}
+            local calls = 0
+            local guarded = setmetatable({
+                mupdf_new_pixmap_with_data = function(ctx, colorspace, w, h, seps, alpha, stride, data)
+                    local owner
+                    for _, buffer in ipairs(owners) do
+                        if ffi.cast("unsigned char*", buffer.data) == data then owner = buffer; break end
+                    end
+                    assert.is_not_nil(owner)
+                    -- Reject a mismatched row layout before entering native code.
+                    assert.equals(owner.stride, stride)
+                    calls = calls + 1
+                    return backend.mupdf_new_pixmap_with_data(ctx, colorspace, w, h, seps, alpha, stride, data)
+                end,
+            }, { __index = backend })
+            BB.new = function(...)
+                local buffer = new(...)
+                owners[#owners + 1] = buffer
+                return buffer
+            end
+            debug.setupvalue(M.scaleBlitBuffer, slot, guarded)
+            local ok, err = xpcall(function()
+                for _, kind in ipairs({ BB.TYPE_BB8, BB.TYPE_BB8A, BB.TYPE_BBRGB24,
+                        BB.TYPE_BBRGB32, BB.TYPE_BB4, BB.TYPE_BBRGB16 }) do
+                    owners = {}
+                    local input = BB.new(12, 8, kind)
+                    input:fill(BB.COLOR_WHITE)
+                    local result = M.scaleBlitBuffer(input, 6, 4)
+                    assert.equals(6, result.w)
+                    assert.equals(4, result.h)
+                    for _, buffer in ipairs(owners) do buffer:free() end
+                    owners = {}
+                end
+                assert.equals(6, calls)
+            end, debug.traceback)
+            debug.setupvalue(M.scaleBlitBuffer, slot, backend)
+            BB.new = new
+            for _, buffer in ipairs(owners) do buffer:free() end
+            assert.is_true(ok, err)
+        end)
+
+        it("should scale RGB565 pixels without changing the source buffer", function()
+            local ffi = require("ffi")
+            local BB = require("ffi/blitbuffer")
+            -- Include padding smaller and larger than the converted RGBA row.
+            for _, stride in ipairs({ 24, 32, 64 }) do
+                local input = BB.new(12, 8, BB.TYPE_BBRGB16, nil, stride, stride / 2)
+                input:paintRectRGB32(0, 0, 12, 8, BB.ColorRGB32(255, 0, 0, 255))
+                input:paintRectRGB32(6, 0, 6, 8, BB.ColorRGB32(0, 0, 255, 255))
+                local before = ffi.string(input.data, input.stride * input.h)
+                local result
+                local ok, err = xpcall(function()
+                    result = M.scaleBlitBuffer(input, 6, 4)
+                    assert.equals(6, result.w)
+                    assert.equals(4, result.h)
+                    local left = result:getPixel(0, 0):getColorRGB24()
+                    local right = result:getPixel(5, 3):getColorRGB24()
+                    assert.equals(255, left:getR())
+                    assert.equals(0, left:getB())
+                    assert.equals(0, right:getR())
+                    assert.equals(255, right:getB())
+                    assert.equals(1, input:getAllocated())
+                    assert.equals(before, ffi.string(input.data, input.stride * input.h))
+                end, debug.traceback)
+                if result then result:free() end
+                input:free()
+                assert.is_true(ok, err)
+            end
+        end)
+    end)
+
     describe("image API", function()
         it("should render an image", function()
             local img = M.renderImageFile(test_img)
