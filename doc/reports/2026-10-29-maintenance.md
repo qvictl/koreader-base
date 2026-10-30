@@ -4,7 +4,7 @@
 
 本轮 base 开发子任务已结束，确认的修复、回归和 CI 改造已合入。
 本报告记录发布使用的精确版本，不表示全库 bug 清零或 Kindle 原 811 章卡死已解决。
-三仓总报告见 [KOReader 维护报告](https://github.com/qvictl/koreader/blob/main/doc/reports/2026-10-29-maintenance.md)。
+三仓总报告见 [KOReader 维护报告](https://github.com/qvictl/koreader/blob/db52bf904ff246ccafee89cd0f542a2e9262fa9b/doc/reports/2026-10-29-maintenance.md)。
 
 ## 版本与修复
 
