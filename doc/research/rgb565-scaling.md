@@ -34,7 +34,7 @@ Android/macOS/Kindle run, or whole-suite pass is claimed.
 In a prepared native base test installation, the targeted tests can be run with:
 
 ```sh
-./spec/runtests --busted --filter='blitbuffer scaling' base mupdf
+./spec/runtests --busted --filter='blitbuffer scaling' base spec/base/unit/mupdf_spec.lua
 ```
 
 Local LuaCov evidence covers the changed production assignment: **1/1 (100%)**.
@@ -54,7 +54,7 @@ are not counted as defect reproduction.
 Core branch `test/rgb565-scaling-integration-main03`, commit
 `f76d9115004eb61c46a993f0eac85a63802487bb`, adds a section to
 `spec/integration/scenarios/17_document_regressions.lua`. Its parent is actual
-core main `4db3dccf0` (full commit recorded in the local proof). It invokes the
+core main `4db3dccf03f298f32b80becb6c71f87069fb6b7e`. It invokes the
 real UI event loop and `RenderImage:scaleBlitBuffer`, with three RGB565 pitches,
 backend layout guards, real native scaling and source preservation checks.
 
