@@ -238,6 +238,7 @@ describe("mupdf module", function()
             assert.is_not_nil(slot)
             local owners = {}
             local calls = 0
+            local result
             local guarded = setmetatable({
                 mupdf_new_pixmap_with_data = function(ctx, colorspace, w, h, seps, alpha, stride, data)
                     local owner
@@ -263,9 +264,11 @@ describe("mupdf module", function()
                     owners = {}
                     local input = BB.new(12, 8, kind)
                     input:fill(BB.COLOR_WHITE)
-                    local result = M.scaleBlitBuffer(input, 6, 4)
+                    result = M.scaleBlitBuffer(input, 6, 4)
                     assert.equals(6, result.w)
                     assert.equals(4, result.h)
+                    result:free()
+                    result = nil
                     for _, buffer in ipairs(owners) do buffer:free() end
                     owners = {}
                 end
@@ -273,6 +276,7 @@ describe("mupdf module", function()
             end, debug.traceback)
             debug.setupvalue(M.scaleBlitBuffer, slot, backend)
             BB.new = new
+            if result then result:free() end
             for _, buffer in ipairs(owners) do buffer:free() end
             assert.is_true(ok, err)
         end)
