@@ -41,5 +41,16 @@ The CMake target `koreader-input-test` builds only for the Linux emulator and is
 not part of Kindle/device binaries. Native/build changes select the full unit
 suite through the existing selector. Lua-only diff coverage does not measure
 this C change; the native regression assertions and normal CI build are the
-relevant evidence. Cross-repository user-visible integration coverage is being
-prepared separately before this change leaves draft.
+relevant evidence. Companion [core PR63](https://github.com/qvictl/koreader/pull/63) adds
+`35_native_input_eof`: real ReaderUI, frontend input translation and UIManager
+page turns with owned pipes and the actual rebuilt native poller. The old module
+fails the fd-closure assertion; the fixed module passes 8/8 assertions plus two
+page-turn waits in three isolated runs (1.2 s, 1.3 s and 2.7 s). All 592 overlaid
+core/base Lua files match source byte-for-byte. No fake powerd service is started.
+The companion stays draft until it pins the actual base main merge commit.
+
+Normal [CI 41160236077](https://github.com/qvictl/koreader-base/actions/runs/41160236077)
+compiled this fixture, passed its binary check and all **38/38 complete unit
+suites**, including `input_eof`; required lint/tests-policy/coverage also passed
+at native candidate `b640fd21`. This documentation update does not alter the
+production or test source; latest-head CI and review still apply.
