@@ -993,8 +993,8 @@ void BB_invert_rect(BlitBuffer * restrict bb, unsigned int x, unsigned int y, un
     const int bb_type = GET_BB_TYPE(bb);
     switch (bb_type) {
         case TYPE_BB8:
-            if (rx == 0 && rw == bb->w) {
-                // Single step for contiguous scanlines
+            if (rx == 0 && rw == bb->w && bb->pixel_stride == rw && bb->stride == rw * 1U) {
+                // Only packed rows are contiguous; viewports inherit the parent stride.
                 //fprintf(stdout, "%s: Full BB8 invertRect\n", __FUNCTION__);
                 uint8_t * restrict p = bb->data + bb->stride*ry;
                 size_t px_count = bb->pixel_stride*rh;
@@ -1014,8 +1014,8 @@ void BB_invert_rect(BlitBuffer * restrict bb, unsigned int x, unsigned int y, un
             }
             break;
         case TYPE_BB8A:
-            if (rx == 0 && rw == bb->w) {
-                // Single step for contiguous scanlines
+            if (rx == 0 && rw == bb->w && bb->pixel_stride == rw && bb->stride == rw * 2U) {
+                // Only packed rows are contiguous; viewports inherit the parent stride.
                 //fprintf(stdout, "%s: Full BB8A invertRect\n", __FUNCTION__);
                 uint16_t * restrict p = (uint16_t*) (bb->data + bb->stride*ry);
                 size_t px_count = bb->pixel_stride*rh;
@@ -1036,8 +1036,8 @@ void BB_invert_rect(BlitBuffer * restrict bb, unsigned int x, unsigned int y, un
             break;
         case TYPE_BBRGB16:
             // NOTE: Not actually accurate, but RGB565 is the worst.
-            if (rx == 0 && rw == bb->w) {
-                // Single step for contiguous scanlines
+            if (rx == 0 && rw == bb->w && bb->pixel_stride == rw && bb->stride == rw * 2U) {
+                // Only packed rows are contiguous; viewports inherit the parent stride.
                 //fprintf(stdout, "%s: Full BBRGB16 invertRect\n", __FUNCTION__);
                 uint16_t * restrict p = (uint16_t*) (bb->data + bb->stride*ry);
                 size_t px_count = bb->pixel_stride*rh;
@@ -1057,8 +1057,8 @@ void BB_invert_rect(BlitBuffer * restrict bb, unsigned int x, unsigned int y, un
             }
             break;
         case TYPE_BBRGB24:
-            if (rx == 0 && rw == bb->w) {
-                // Single step for contiguous scanlines
+            if (rx == 0 && rw == bb->w && bb->pixel_stride == rw && bb->stride == rw * 3U) {
+                // Only packed rows are contiguous; viewports inherit the parent stride.
                 //fprintf(stdout, "%s: Full BBRGB24 invertRect\n", __FUNCTION__);
                 uint8_t * restrict p = bb->data + bb->stride*ry;
                 size_t px_count = bb->pixel_stride*rh;
@@ -1082,8 +1082,8 @@ void BB_invert_rect(BlitBuffer * restrict bb, unsigned int x, unsigned int y, un
             }
             break;
         case TYPE_BBRGB32:
-            if (rx == 0 && rw == bb->w) {
-                // Single step for contiguous scanlines
+            if (rx == 0 && rw == bb->w && bb->pixel_stride == rw && bb->stride == rw * 4U) {
+                // Only packed rows are contiguous; viewports inherit the parent stride.
                 //fprintf(stdout, "%s: Full BBRGB32 invertRect\n", __FUNCTION__);
                 uint32_t * restrict p = (uint32_t*) (bb->data + bb->stride*ry);
                 size_t px_count = bb->pixel_stride*rh;

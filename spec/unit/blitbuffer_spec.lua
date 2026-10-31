@@ -1,5 +1,7 @@
 require("ffi_wrapper")
 
+local bit = require("bit")
+local ffi = require("ffi")
 local Blitbuffer = require("ffi/blitbuffer")
 
 describe("Blitbuffer unit tests", function()
@@ -580,3 +582,102 @@ describe("Blitbuffer unit tests", function()
     end)
 end)
 
+
+describe("Blitbuffer rectangle inversion boundaries", function()
+    local original_cbb
+    before_each(function()
+        original_cbb = Blitbuffer:getUseCBB()
+    end)
+    after_each(function()
+        Blitbuffer:setUseCBB(original_cbb)
+    end)
+
+    local formats = {
+        { "BB8", Blitbuffer.TYPE_BB8, 1 },
+        { "BB8A", Blitbuffer.TYPE_BB8A, 2 },
+        { "RGB16", Blitbuffer.TYPE_BBRGB16, 2 },
+        { "RGB24", Blitbuffer.TYPE_BBRGB24, 3 },
+        { "RGB32", Blitbuffer.TYPE_BBRGB32, 4 },
+    }
+
+    -- Compare raw bytes, including row padding and guard bytes. Building the expected
+    -- image directly avoids relying on another rectangle/blitting implementation.
+    local function check_rect(format, use_cbb, width, height, stride, pixel_stride, rotation, rect, offset)
+        Blitbuffer:setUseCBB(use_cbb)
+        local bpp = format[3]
+        local guard = 32
+        offset = offset or 0
+        local length = guard + offset + stride * height + guard
+        local storage = ffi.new("uint8_t[?]", length)
+        local expected = ffi.new("uint8_t[?]", length)
+        for i = 0, length - 1 do
+            storage[i] = (i * 37 + 19) % 256
+            expected[i] = storage[i]
+        end
+        local bb = Blitbuffer.new(width, height, format[2], storage + guard + offset, stride, pixel_stride)
+        bb:setRotation(rotation)
+        assert.are.equal(use_cbb, bb:canUseCbb(), "requested blitter is active")
+        local x, y, w, h = bb:getBoundedRect(unpack(rect))
+        if w > 0 and h > 0 then
+            x, y, w, h = bb:getPhysicalRect(x, y, w, h)
+            for py = y, y + h - 1 do
+                for px = x, x + w - 1 do
+                    local start = guard + offset + py * stride + px * bpp
+                    local channels = bpp
+                    if format[2] == Blitbuffer.TYPE_BB8A or format[2] == Blitbuffer.TYPE_BBRGB32 then
+                        channels = channels - 1 -- preserve alpha
+                    end
+                    for channel = 0, channels - 1 do
+                        expected[start + channel] = bit.bxor(expected[start + channel], 0xFF)
+                    end
+                end
+            end
+        end
+        bb:invertRect(unpack(rect))
+        for i = 0, length - 1 do
+            assert.are.equal(expected[i], storage[i], "byte " .. i)
+        end
+        -- Inversion is involutive, including with clipping and rotation.
+        bb:invertRect(unpack(rect))
+        for i = 0, length - 1 do
+            assert.are.equal((i * 37 + 19) % 256, storage[i])
+        end
+    end
+
+    for _, format in ipairs(formats) do
+        for _, use_cbb in ipairs({ false, true }) do
+            local name = format[1] .. (use_cbb and " C" or " Lua")
+            it("keeps full-width padded " .. name .. " rows bounded", function()
+                assert.is_true(not use_cbb or Blitbuffer.has_cblitbuffer)
+                for rotation = 0, 3 do
+                    local w, h = rotation % 2 == 0 and 4 or 3, rotation % 2 == 0 and 3 or 4
+                    check_rect(format, use_cbb, 4, 3, 6 * format[3], 6, rotation, { 0, 0, w, h })
+                    -- Byte stride need not be represented by pixel_stride (e.g. BB8 padding).
+                    check_rect(format, use_cbb, 4, 3, 6 * format[3], 4, rotation, { 0, 0, w, h })
+                end
+            end)
+
+            it("keeps offset " .. name .. " viewports bounded", function()
+                for rotation = 0, 3 do
+                    local w, h = rotation % 2 == 0 and 4 or 3, rotation % 2 == 0 and 3 or 4
+                    check_rect(format, use_cbb, 4, 3, 7 * format[3], 7, rotation,
+                        { 0, 0, w, h }, 2 * format[3])
+                end
+                -- A one-pixel-wide viewport cannot be split into narrower rectangles.
+                check_rect(format, use_cbb, 1, 3, 5 * format[3], 5, 0, { 0, 0, 1, 3 }, format[3])
+            end)
+
+            it("preserves packed and partial " .. name .. " inversion", function()
+                for rotation = 0, 3 do
+                    local w, h = rotation % 2 == 0 and 5 or 4, rotation % 2 == 0 and 4 or 5
+                    check_rect(format, use_cbb, 5, 4, 5 * format[3], 5, rotation, { 0, 0, w, h })
+                    check_rect(format, use_cbb, 5, 4, 5 * format[3], 5, rotation, { 1, 1, 1, 2 })
+                    check_rect(format, use_cbb, 5, 4, 5 * format[3], 5, rotation, { 1, 1, w - 2, h - 2 })
+                    check_rect(format, use_cbb, 5, 4, 5 * format[3], 5, rotation, { -1, -1, 3, 3 })
+                    check_rect(format, use_cbb, 5, 4, 5 * format[3], 5, rotation, { 1, 1, 0, 2 })
+                    check_rect(format, use_cbb, 5, 4, 5 * format[3], 5, rotation, { w, h, 2, 2 })
+                end
+            end)
+        end
+    end
+end)
