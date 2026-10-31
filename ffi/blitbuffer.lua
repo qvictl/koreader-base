@@ -1636,13 +1636,11 @@ function BB_mt.__index:invertRect(x, y, w, h)
 
         -- We check against the BB's unrotated coordinates (i.e., self.w and not self:getWidth()),
         -- as our memory region has a fixed layout, too!
-        if x == 0 and w == self.w then
-            -- Single step for contiguous scanlines
+        if x == 0 and w == self.w and self.pixel_stride == w and self.stride == bpp*w then
+            -- Only packed rows are contiguous: viewports inherit their parent's stride.
             --print("Full invertRect")
             if bbtype == TYPE_BBRGB32 then
                 local p = ffi.cast(uint32pt, ffi.cast(uint8pt, self.data) + self.stride*y)
-                -- Account for potentially off-screen scanline bits by using self.pixel_stride instead of w,
-                -- as we've just assured ourselves that the requested w matches self.w ;).
                 for i = 1, self.pixel_stride*h do
                     p[0] = bxor(p[0], 0x00FFFFFF)
                     -- Pointer arithmetics magic: +1 on an uint32_t* means +4 bytes (i.e., next pixel) ;).
@@ -1663,7 +1661,7 @@ function BB_mt.__index:invertRect(x, y, w, h)
             else
                 -- Should only be BBRGB24 & BB8 left
                 local p = ffi.cast(uint8pt, self.data) + self.stride*y
-                for i = 1, self.stride*h do
+                for i = 1, bpp*w*h do
                     p[0] = bxor(p[0], 0xFF)
                     p = p+1
                 end
@@ -1699,7 +1697,7 @@ function BB_mt.__index:invertRect(x, y, w, h)
                 -- Honor bpp because of BBRGB24...
                 for j = y, y+h-1 do
                     local p = ffi.cast(uint8pt, self.data) + self.stride*j + bpp*x
-                    for i = 0, bpp*(w-1) do
+                    for i = 0, bpp*w-1 do
                         p[0] = bxor(p[0], 0xFF)
                         p = p+1
                     end
