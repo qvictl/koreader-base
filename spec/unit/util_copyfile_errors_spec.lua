@@ -48,6 +48,10 @@ describe("copyFile failure reporting", function()
     after_each(function()
         if open_stub then open_stub:revert(); open_stub = nil end
         lfs.symlinkattributes = saved_symlinkattributes
+        -- purgeDir follows links: unlink first, independent of directory order.
+        if lfs.symlinkattributes(target, "mode") == "link" then
+            assert(os.remove(target))
+        end
         util.purgeDir(root)
     end)
 
@@ -170,6 +174,7 @@ describe("copyFile failure reporting", function()
         -- Copy remains in-place: preserving the link does not restore its referent.
         assert.are.equal(bytes:sub(1, 17), read(target))
         assert.are.equal(bytes, read(source))
+        assert(os.remove(backing)) -- teardown must also handle a now-dangling link
     end)
 
     it("distinguishes a real source-directory read error from EOF on Linux", function()
