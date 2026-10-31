@@ -137,6 +137,17 @@ function(setup_koreader_input)
     endforeach()
 endfunction()
 
+# Exercise the real Linux evdev poller in emulator unit tests, without hardware
+# fake-event producers. Device builds continue to use koreader-input above.
+if(EMULATE_READER AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    declare_koreader_target(
+        koreader-input-test TYPE library
+        DEPENDS luajit::luajit
+        SOURCES spec/unit/data/input-test.c
+        VISIBILITY hidden
+    )
+endif()
+
 # koreader-nnsvg
 declare_koreader_target(
     koreader-nnsvg TYPE monolibtic

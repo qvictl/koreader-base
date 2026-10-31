@@ -493,7 +493,16 @@ static int waitForInput(lua_State* L)
                     }
                 }
                 if (len == 0) {
-                    // Should never happen
+                    // A dead fake-event producer leaves its pipe permanently readable.
+                    // Retire it like a removed device so it cannot spin or starve other fds.
+                    int closed_fd = inputfds[i];
+                    closeByIndex(i);
+                    if (j > 0U || ev_count > 0U) {
+                        // EOF can follow the producer's final events in this same poll.
+                        // Keep their original fd: closeByIndex has repacked inputfds.
+                        drain_input_queue(L, input_queue, ev_count, j, closed_fd);
+                        return 2;  // true, ev_array
+                    }
                     lua_settop(L, 0);
                     lua_pushboolean(L, false);
                     lua_pushinteger(L, EPIPE);
