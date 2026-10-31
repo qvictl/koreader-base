@@ -69,6 +69,10 @@ separate identical-path guard and checked main-save result remain necessary.
   Original base helper fails the source-cover preservation check.
 - Existing sidecar scenario 42 also passes **32/32** in three fresh runs with
   this helper overlay.
+- Independent local review found no production blocker and reran all eleven
+  fault cases. Its nonblocking timeout-cleanup suggestion is incorporated: close
+  the result pipe and perform bounded child reaping before failing a timed-out
+  probe, rather than risking a blocking read or leaving a zombie.
 
 This is the current Lua helper overlaid into an existing verified native emulator,
 not a new native build or a Kindle hardware/durability test. The base input-EOF

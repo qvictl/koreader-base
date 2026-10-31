@@ -182,9 +182,16 @@ describe("copyFile failure reporting", function()
                 if util.isSubProcessDone(pid) then done = true; break end
                 util.usleep(25000)
             end
-            if not done then util.terminateSubProcess(pid) end
-            local result = util.readAllFromFD(fd)
+            if not done then
+                ffi.C.close(fd)
+                util.terminateSubProcess(pid)
+                for _ = 1, 200 do
+                    if util.isSubProcessDone(pid) then break end
+                    util.usleep(25000)
+                end
+            end
             assert.is_true(done)
+            local result = util.readAllFromFD(fd)
             assert.are.equal("reported", result)
             assert.are.equal(contents, read(source))
             assert.is_nil(lfs.attributes(target))
