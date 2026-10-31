@@ -1,27 +1,27 @@
 {
-  "date": "2026-10-30",
+  "date": "2026-10-31",
   "mode": "combined",
   "overall": {
-    "covered": 5939,
-    "total": 12958,
-    "percent": 45.833,
+    "covered": 6041,
+    "total": 12972,
+    "percent": 46.57,
     "files": 54
   },
   "overall_unit": {
-    "covered": 5370,
-    "total": 12915,
-    "percent": 41.58,
+    "covered": 5445,
+    "total": 12929,
+    "percent": 42.115,
     "min": null
   },
   "diff_unit": {
-    "covered": 0,
-    "total": 0,
-    "percent": 100
+    "covered": 17,
+    "total": 18,
+    "percent": 94.444
   },
   "diff_combined": {
-    "covered": 0,
-    "total": 0,
-    "percent": 100
+    "covered": 17,
+    "total": 18,
+    "percent": 94.444
   },
   "unit_ratchet": {
     "baseline": 41.58,
@@ -85,11 +85,11 @@
     }
   ],
   "ok": true,
-  "commit": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
+  "commit": "fcdb4d77faa04cc21f58cfb952ca2f5a25ce5577",
   "event": "product_release",
-  "diff_base": "7a32fc9e734366e9b223b9eb5e5cd9b049097590",
+  "diff_base": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
   "ratchet_base": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
   "unit_ratchet_base": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
-  "tooling_commit": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
-  "updated": "2026-10-30T10:36:14Z"
+  "tooling_commit": "fcdb4d77faa04cc21f58cfb952ca2f5a25ce5577",
+  "updated": "2026-10-31T10:09:38Z"
 }
