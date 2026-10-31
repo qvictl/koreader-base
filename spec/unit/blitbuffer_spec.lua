@@ -644,6 +644,10 @@ describe("Blitbuffer rectangle inversion boundaries", function()
         end
     end
 
+    it("inverts every channel of a partial RGB24 Lua rectangle", function()
+        check_rect(formats[4], false, 5, 3, 15, 5, 0, { 1, 1, 2, 1 })
+    end)
+
     for _, format in ipairs(formats) do
         for _, use_cbb in ipairs({ false, true }) do
             local name = format[1] .. (use_cbb and " C" or " Lua")
