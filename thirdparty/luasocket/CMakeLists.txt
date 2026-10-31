@@ -11,6 +11,8 @@ list(APPEND PATCH_FILES
     http_headers_callback.patch
     # Keep origin credentials out of the proxy request-target.
     http_proxy_no_userinfo.patch
+    # Backport upstream af10c2c: follow HTTP 308 permanent redirects.
+    http_308_redirect.patch
 )
 if(NOT ANDROID)
     # Make sure socket fds are CLOEXEC on *nix.
