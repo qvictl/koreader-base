@@ -1,0 +1,22 @@
+diff --git a/src/http.lua b/src/http.lua
+--- a/src/http.lua
++++ b/src/http.lua
+@@ -211,6 +211,18 @@ local function adjusturi(reqt)
+            query = reqt.query,
+            fragment = reqt.fragment
+         }
++    else
++        -- RFC 9110 section 4.2.4 forbids userinfo in the request-target.
++        -- Keep credentials on reqt for adjustheaders, not in url.build.
++        u = {
++            scheme = reqt.scheme,
++            host = reqt.host,
++            port = reqt.port,
++            path = reqt.path,
++            params = reqt.params,
++            query = reqt.query,
++            fragment = reqt.fragment
++        }
+     end
+     return url.build(u)
+ end
