@@ -33,7 +33,7 @@ local function wrap(file)
 end
 
 describe("copyFile failure reporting", function()
-    local root, source, target, saved_open, saved_attributes, open_stub
+    local root, source, target, saved_open, saved_symlinkattributes, open_stub
     local bytes = string.rep("source bytes\000", 2000)
 
     before_each(function()
@@ -42,12 +42,12 @@ describe("copyFile failure reporting", function()
         assert(lfs.mkdir(root))
         source, target = root .. "/source", root .. "/target"
         write(source, bytes)
-        saved_open, saved_attributes = io.open, lfs.attributes
+        saved_open, saved_symlinkattributes = io.open, lfs.symlinkattributes
     end)
 
     after_each(function()
         if open_stub then open_stub:revert(); open_stub = nil end
-        lfs.attributes = saved_attributes
+        lfs.symlinkattributes = saved_symlinkattributes
         util.purgeDir(root)
     end)
 
@@ -81,7 +81,7 @@ describe("copyFile failure reporting", function()
     end)
 
     for _, failure in ipairs({ "read", "write", "source close", "target close" }) do
-        it("reports " .. failure .. " failure, closes both streams and removes the partial copy", function()
+        it("reports " .. failure .. " failure and closes both streams", function()
             local source_handle, target_handle
             local read_count = 0
             open_stub = stub(io, "open", function(path, mode)
@@ -121,7 +121,11 @@ describe("copyFile failure reporting", function()
             assert.are.equal(failure .. " failure", util.copyFile(source, target))
             assert.are.equal("closed file", io.type(source_handle))
             assert.are.equal("closed file", io.type(target_handle))
-            assert.is_nil(lfs.attributes(target))
+            if failure == "source close" then
+                assert.are.equal(bytes, read(target)) -- target write and close both succeeded
+            else
+                assert.is_nil(lfs.attributes(target))
+            end
             open_stub:revert(); open_stub = nil
             assert.are.equal(bytes, read(source))
         end)
@@ -136,12 +140,36 @@ describe("copyFile failure reporting", function()
             stream.write = function() return nil, "special target failure" end
             return stream
         end)
-        lfs.attributes = function(path, attribute)
+        lfs.symlinkattributes = function(path, attribute)
             if path == target and attribute == "mode" then return "char device" end
-            return saved_attributes(path, attribute)
+            return saved_symlinkattributes(path, attribute)
         end
         assert.are.equal("special target failure", util.copyFile(source, target))
-        assert.are.equal("file", saved_attributes(target, "mode"))
+        assert.are.equal("file", saved_symlinkattributes(target, "mode"))
+    end)
+
+    it("preserves a destination symlink when its referent encounters a write failure", function()
+        if ffi.os == "Windows" then pending("requires symbolic link support") end
+        local backing = root .. "/backing"
+        write(backing, "previous destination")
+        assert(lfs.link(backing, target, true))
+        open_stub = stub(io, "open", function(path, mode)
+            local file, err = saved_open(path, mode)
+            if not file or path ~= target then return file, err end
+            local stream = wrap(file)
+            stream.write = function(_, chunk)
+                assert(file:write(chunk:sub(1, 17)))
+                return nil, "symlink target write failure"
+            end
+            return stream
+        end)
+        assert.are.equal("symlink target write failure", util.copyFile(source, target))
+        assert.are.equal("link", lfs.symlinkattributes(target, "mode"))
+        assert.are.equal("file", lfs.attributes(backing, "mode"))
+        open_stub:revert(); open_stub = nil
+        -- Copy remains in-place: preserving the link does not restore its referent.
+        assert.are.equal(bytes:sub(1, 17), read(target))
+        assert.are.equal(bytes, read(source))
     end)
 
     it("distinguishes a real source-directory read error from EOF on Linux", function()

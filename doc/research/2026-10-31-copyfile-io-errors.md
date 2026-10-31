@@ -28,8 +28,12 @@ parent's unit-coverage statistics. Kernel probes are independent of those facade
 Retain the nil-on-success/error-string contract. Check read, write and both
 close results; close the source immediately if destination open fails. Prefer
 the first I/O failure when later cleanup also reports an error. On failed copy,
-attempt to remove an incomplete regular destination, but never unlink special
-targets such as device nodes. Copying still uses bounded 8 KiB chunks.
+attempt to remove an incomplete regular destination, but never unlink symlinks or
+special targets such as device nodes. Source-close failure alone still returns an
+error but retains the completed target when its writes and close succeeded.
+Copying still uses bounded 8 KiB chunks. Destination symlinks retain the existing
+in-place write behavior; preserving the link does not restore its referent after
+a failed write.
 
 Existing callers that check nil/error now reject detected write/close/read
 failures instead of treating them as successful copies. Inspection covers
@@ -46,20 +50,21 @@ separate identical-path guard and checked main-save result remain necessary.
 
 ## Local validation
 
-- **89/89 related native tests** in five complete utility suites, including eleven
-  new cases; original production fails nine new cases and passes the two ordinary
+- **90/90 related native tests** in five complete utility suites, including twelve
+  new cases; original production fails ten new cases and passes the two ordinary
   copy/source-open controls.
-- **37/38 complete base suites pass, 503 successful cases**. The only remaining
+- **37/38 complete base suites pass, 504 successful cases**. The only remaining
   failure is the existing live Internet HTTP case. The generated POSIX declaration
   suite passes all eleven variants after reproducing the standard ffi symlink /
   ffi-cdecl layout in the owned runtime. No test or gate was weakened.
-- **15/16 changed executable lines covered (93.8%)**; unchanged diff80 gate passes.
+- **16/17 changed executable lines covered (94.1%)**; unchanged diff80 gate passes.
   The uncovered line is the multiline assignment anchor, not an untested error
   branch. Lua lint reports zero warnings/errors. Whole coverage is unmeasured.
-- All 153 front suites also attempted with the helper overlay: 150 pass, 2,150
-  successful cases. Remaining unchanged host blockers are unavailable msgfmt,
-  prohibited getifaddrs and four live translator DNS errors. This is not a clean
-  full-suite claim; required remote CI remains pending.
+- All 155 front suites also attempted against core main `1d97693` plus local
+  PR 65 with the corrected helper overlay: **152 pass, 2,184 successful cases**.
+  Remaining unchanged host blockers are unavailable msgfmt, prohibited getifaddrs
+  and four live translator DNS errors. This is not a clean full-suite claim;
+  required remote CI and review must cover the final head.
 - KOReader scenario `44_sidecar_copy_io_failure`, staged locally for PR 65's
   eventual pin update: **13/13**, three fresh runs. Actual ReaderUI bookmarks,
   main-sidecar persistence, kernel-limited large-cover writes and buffered custom
@@ -68,7 +73,14 @@ separate identical-path guard and checked main-save result remain necessary.
   the real main-settings writer completes before the child lowers its own limit.
   Original base helper fails the source-cover preservation check.
 - Existing sidecar scenario 42 also passes **32/32** in three fresh runs with
-  this helper overlay.
+  this helper overlay. After the cleanup-boundary corrections, scenarios 16/42/44
+  pass three more fresh runs each: **3×58/58 checks**.
+- Formal review found two cleanup-boundary issues: source-close-only errors
+  removed completed targets, and following symlinks for the type check removed
+  the link on a write failure. Both have negative regression evidence against
+  `71a1e850` (2/12 failures), and are corrected without changing the return API.
+  Independent review of these corrections finds no blocker and reruns **12/12**
+  cases successfully in a separate owned runtime.
 - Independent local review found no production blocker and reran all eleven
   fault cases. Its nonblocking timeout-cleanup suggestion is incorporated: close
   the result pipe and perform bounded child reaping before failing a timed-out

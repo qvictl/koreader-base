@@ -255,13 +255,15 @@ function util.copyFile(from, to)
     end
     local source_closed, source_error = ffp:close()
     local target_closed, target_error = tfp:close()
+    local incomplete = copy_error ~= nil or not target_closed
     copy_error = copy_error
         or (not source_closed and (source_error or "failed closing " .. from))
         or (not target_closed and (target_error or "failed closing " .. to))
     if copy_error then
         -- Do not leave a truncated regular file discoverable as a successful copy.
-        -- Never unlink special targets (e.g., devices) on an I/O error.
-        if lfs.attributes(to, "mode") == "file" then
+        -- A source-close error alone does not make the completed target incomplete.
+        -- Never unlink symlinks or special targets (e.g., devices) on an I/O error.
+        if incomplete and lfs.symlinkattributes(to, "mode") == "file" then
             os.remove(to)
         end
         return copy_error
