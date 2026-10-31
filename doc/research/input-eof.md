@@ -13,6 +13,11 @@ This is reproducible with owned local pipes, independent of Kindle firmware.
 The change closes/retires the EOF descriptor through the existing dense-array
 helper and returns already-read events using their original descriptor identity.
 An empty EOF still reports `EPIPE` once. Live pipes at `EAGAIN` are unchanged.
+Both EOF returns also include the retired descriptor as a fourth result; the
+third remains reserved for an expired timerfd. Companion core code consumes
+this metadata before dispatch, removing all path aliases without closing the
+descriptor again. Otherwise the frontend registry would suppress reopening
+that path, or close an unrelated input after the OS reused its descriptor.
 This **does not restart a terminated powerd/lipc listener** or prove the cause of
 that listener's termination; missing power events still require restarting KOReader.
 
@@ -44,13 +49,20 @@ this C change; the native regression assertions and normal CI build are the
 relevant evidence. Companion [core PR63](https://github.com/qvictl/koreader/pull/63) adds
 `35_native_input_eof`: real ReaderUI, frontend input translation and UIManager
 page turns with owned pipes and the actual rebuilt native poller. The old module
-fails the fd-closure assertion; the fixed module passes 8/8 assertions plus two
-page-turn waits in three isolated runs (1.2 s, 1.3 s and 2.7 s). All 592 overlaid
-core/base Lua files match source byte-for-byte. No fake powerd service is started.
+fails the fd-closure assertion. After the cross-repository registry correction,
+the scenario passes 12/12 assertions plus two page-turn waits in three isolated
+runs (1.0 s, 1.1 s and 1.0 s), including actual OS descriptor reuse and protection
+of the replacement input from a late close of the old path. The new module with
+old frontend code fails at the registry-cleanup assertion. No fake powerd service
+is started.
 The companion stays draft until it pins the actual base main merge commit.
 
 Normal [CI 41160236077](https://github.com/qvictl/koreader-base/actions/runs/41160236077)
 compiled this fixture, passed its binary check and all **38/38 complete unit
 suites**, including `input_eof`; required lint/tests-policy/coverage also passed
-at native candidate `b640fd21`. This documentation update does not alter the
-production or test source; latest-head CI and review still apply.
+at the initial native candidate `b640fd21`. These CI results predate the fourth
+return-value correction: they are not evidence for the revised head. Locally,
+the corrected native module passes all six tests (including retirement metadata)
+under the same strict compiler flags. Core's five adjacent input suites pass
+79 tests; its repository coverage reporter measures 100% (5/5) changed executable
+Lua lines. Fresh CI and review remain required for the revised head.

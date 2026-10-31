@@ -501,12 +501,16 @@ static int waitForInput(lua_State* L)
                         // EOF can follow the producer's final events in this same poll.
                         // Keep their original fd: closeByIndex has repacked inputfds.
                         drain_input_queue(L, input_queue, ev_count, j, closed_fd);
-                        return 2;  // true, ev_array
+                    } else {
+                        lua_settop(L, 0);
+                        lua_pushboolean(L, false);
+                        lua_pushinteger(L, EPIPE);
                     }
-                    lua_settop(L, 0);
-                    lua_pushboolean(L, false);
-                    lua_pushinteger(L, EPIPE);
-                    return 2;  // false, EPIPE
+                    // The third result remains reserved for an expired timerfd.
+                    // Let the frontend forget the retired fd before dispatching events.
+                    lua_pushnil(L);
+                    lua_pushinteger(L, closed_fd);
+                    return 4;  // true, ev_array, nil, fd OR false, EPIPE, nil, fd
                 }
                 if (len > 0 && len % sizeof(*input_queue) != 0) {
                     // Truncated read?! (not a multiple of struct input_event)

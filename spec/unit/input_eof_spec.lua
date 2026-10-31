@@ -38,15 +38,17 @@ describe("native input pipe EOF", function()
         assert.are.equal(ffi.sizeof(events), C.write(writer, events, ffi.sizeof(events)))
     end
     local function pollError(expected)
-        local ok, err = input.waitForEvent(0, 0)
+        local ok, err, timer, retired = input.waitForEvent(0, 0)
         assert.is_false(ok)
         assert.are.equal(tonumber(expected), err)
+        assert.is_nil(timer)
+        return retired
     end
 
     it("retires an empty EOF descriptor and reports EPIPE only once", function()
         local reader, writer = pipe()
         closeWriter(writer)
-        pollError(C.EPIPE)
+        assert.are.equal(reader, pollError(C.EPIPE))
         assert.are.equal(-1, C.fcntl(reader, C.F_GETFD))
         pollError(C.ETIME)
         local ok, err = input.close(reader)
@@ -59,8 +61,10 @@ describe("native input pipe EOF", function()
             local reader, writer = pipe()
             send(writer, count)
             closeWriter(writer)
-            local ok, events = input.waitForEvent(0, 0)
+            local ok, events, timer, retired = input.waitForEvent(0, 0)
             assert.is_true(ok)
+            assert.is_nil(timer)
+            assert.are.equal(reader, retired)
             assert.are.equal(count, #events)
             for i, event in ipairs(events) do
                 assert.are.equal(reader, event.fd)
@@ -69,7 +73,7 @@ describe("native input pipe EOF", function()
                 assert.are.equal(30, event.code)
             end
             assert.are.equal(-1, C.fcntl(reader, C.F_GETFD))
-            pollError(C.ETIME)
+            assert.is_nil(pollError(C.ETIME))
         end)
     end
 
