@@ -1,10 +1,10 @@
 {
-  "date": "2026-10-31",
+  "date": "2026-11-01",
   "mode": "combined",
   "overall": {
-    "covered": 6041,
+    "covered": 6048,
     "total": 12972,
-    "percent": 46.57,
+    "percent": 46.623,
     "files": 54
   },
   "overall_unit": {
@@ -14,22 +14,22 @@
     "min": null
   },
   "diff_unit": {
-    "covered": 17,
-    "total": 18,
-    "percent": 94.444
+    "covered": 0,
+    "total": 0,
+    "percent": 100
   },
   "diff_combined": {
-    "covered": 17,
-    "total": 18,
-    "percent": 94.444
+    "covered": 0,
+    "total": 0,
+    "percent": 100
   },
   "unit_ratchet": {
-    "baseline": 41.58,
-    "label": "base@7c4e2f0d (latest actual full-unit measurement)"
+    "baseline": 42.115,
+    "label": "base@fcdb4d77 (latest actual full-unit measurement)"
   },
   "ratchet": {
-    "baseline": 45.833,
-    "label": "base@7c4e2f0d (latest actual combined measurement)"
+    "baseline": 46.57,
+    "label": "base@fcdb4d77 (latest actual combined measurement)"
   },
   "owned": {
     "covered": 92,
@@ -85,11 +85,11 @@
     }
   ],
   "ok": true,
-  "commit": "fcdb4d77faa04cc21f58cfb952ca2f5a25ce5577",
+  "commit": "d59a3cb108e7b1c90b851a4d7a2120f0c272951e",
   "event": "product_release",
-  "diff_base": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
-  "ratchet_base": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
-  "unit_ratchet_base": "7c4e2f0d81afafb8a19dfa2a28ec2df461962272",
-  "tooling_commit": "fcdb4d77faa04cc21f58cfb952ca2f5a25ce5577",
-  "updated": "2026-10-31T10:09:38Z"
+  "diff_base": "fcdb4d77faa04cc21f58cfb952ca2f5a25ce5577",
+  "ratchet_base": "fcdb4d77faa04cc21f58cfb952ca2f5a25ce5577",
+  "unit_ratchet_base": "fcdb4d77faa04cc21f58cfb952ca2f5a25ce5577",
+  "tooling_commit": "d59a3cb108e7b1c90b851a4d7a2120f0c272951e",
+  "updated": "2026-11-01T11:03:56Z"
 }

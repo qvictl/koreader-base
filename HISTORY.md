@@ -4,6 +4,7 @@ Unit coverage is recorded on main pushes; combined coverage only on validated re
 
 | Date | Commit | Overall | Unit tests only | Fork-owned modules | Owned target |
 |---|---|---:|---:|---:|---:|
+| 2026-11-01 | [d59a3cb108](https://github.com/qvictl/koreader-base/commit/d59a3cb108e7b1c90b851a4d7a2120f0c272951e) | 46.62% | 42.12% | 100% | 80% |
 | 2026-10-31 | [fcdb4d77fa](https://github.com/qvictl/koreader-base/commit/fcdb4d77faa04cc21f58cfb952ca2f5a25ce5577) | 46.57% | 42.12% | 100% | 80% |
 | 2026-10-30 | [7c4e2f0d81](https://github.com/qvictl/koreader-base/commit/7c4e2f0d81afafb8a19dfa2a28ec2df461962272) | 45.83% | 41.58% | 100% | 80% |
 | 2026-10-29 | [7a32fc9e73](https://github.com/qvictl/koreader-base/commit/7a32fc9e734366e9b223b9eb5e5cd9b049097590) | 45.83% | 41.58% | 100% | 80% |
